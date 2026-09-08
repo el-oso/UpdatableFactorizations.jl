@@ -654,6 +654,192 @@ end
     @test all(iszero, [R[a, b] for b in 1:F.n for a in (b + 1):F.n])
 end
 
+@testitem "QR row deletion, every index" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((10, 5), (8, 7), (9, 1), (30, 12))
+        A = randn(T, m, n)
+        @test norm(A' * A - I) > 1
+        for i in 1:m
+            F = UpdatableQR(A)
+            delete_row!(F, i)
+            keep = setdiff(1:m, i)
+            @test size(F) == (m - 1, n)
+            @test norm(F.Q * F.R - A[keep, :]) / norm(A) < 1.0e-12
+            @test norm(F.Q' * F.Q - I) < 1.0e-12
+            Q = getfield(F, :qrep)
+            R = getfield(F, :factors)
+            # The rotation sweep runs k descending so that R never leaves upper-triangular
+            # form. An ascending sweep leaves Q*R exact and this subdiagonal at 0.75.
+            @test all(iszero, [R[i, j] for j in 1:F.n for i in (j + 1):F.n])
+            @test all(iszero, view(Q.buf, (F.m + 1):size(Q.buf, 1), :))
+            @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+            @test all(iszero, view(R, (F.n + 1):(F.n + 1), 1:n))
+        end
+    end
+end
+
+@testitem "QR row deletion holds orthogonality across the leverage range" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    m, n = 10, 4
+    thrown = 0
+    for delta in (1.0e-1, 1.0e-3, 1.0e-5, 1.0e-7, 1.0e-9, 1.0e-12, 1.0e-15, 0.0)
+        A = vcat(hcat(randn(m - 1, n - 1), delta .* randn(m - 1)), hcat(randn(1, n - 1), 1.0))
+        F = UpdatableQR(A)
+        try
+            delete_row!(F, m)
+        catch err
+            err isa ArgumentError || rethrow()
+            @test occursin("has leverage one", sprint(showerror, err))
+            global thrown += 1
+            continue
+        end
+        @test norm(F.Q' * F.Q - I) < 1.0e-13
+        @test norm(F.Q * F.R - A[1:(m - 1), :]) / norm(A) < 1.0e-12
+    end
+    # Both branches are reached: a sweep that only succeeds, or only throws, tests one of them.
+    @test 0 < thrown < 8
+end
+
+@testitem "QR row deletion refuses a row of leverage one" begin
+    using LinearAlgebra
+
+    A = [1.0 0.0; 0.0 1.0; 0.0 0.0]
+    F = UpdatableQR(A)
+    @test_throws "row 1 has leverage one" delete_row!(F, 1)
+    @test size(F) == (3, 2)               # the throw left the factorization as it was
+    @test norm(F.Q * F.R - A) / norm(A) < 1.0e-13
+    qb = getfield(F, :qrep).buf
+    @test all(iszero, view(qb, :, (F.n + 1):size(qb, 2)))
+    delete_row!(F, 3)                     # a row with no leverage deletes cleanly
+    @test size(F) == (2, 2)
+    @test norm(F.Q * F.R - A[1:2, :]) / norm(A) < 1.0e-13
+    @test norm(F.Q' * F.Q - I) < 1.0e-13
+end
+
+@testitem "QR row deletion rtol widens the leverage test" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    m, n = 10, 4
+    A = vcat(hcat(randn(m - 1, n - 1), 1.0e-6 .* randn(m - 1)), hcat(randn(1, n - 1), 1.0))
+    F = UpdatableQR(A)
+    delete_row!(F, m)
+    @test size(F) == (m - 1, n)
+    # The default admits the deletion and leaves a measurably collapsed diagonal entry.
+    @test minimum(abs, diag(F.R)) < 1.0e-4
+
+    G = UpdatableQR(A)
+    @test_throws "has leverage one" delete_row!(G, m; rtol = 1.0e-4)
+end
+
+@testitem "QR row deletion rejects a bad index and a square factorization" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    F = UpdatableQR(randn(9, 4))
+    # `err.a === F` and `err.i` pin the exception to the explicit bounds check: indexing into
+    # internal storage with the unvalidated argument would raise an incidental `BoundsError`
+    # too, on both of these indices, which a bare `@test_throws BoundsError` cannot tell apart.
+    err = try
+        delete_row!(F, 10)
+        nothing
+    catch e
+        e
+    end
+    @test err isa BoundsError
+    @test err.a === F
+    @test err.i == 10
+    err0 = try
+        delete_row!(F, 0)
+        nothing
+    catch e
+        e
+    end
+    @test err0 isa BoundsError
+    @test err0.a === F
+    @test iszero(err0.i)
+    G = UpdatableQR(randn(4, 4))
+    @test_throws "deleting row 2 would leave a 3x4 factorization" delete_row!(G, 2)
+end
+
+@testitem "QR row deletion re-zeroes poisoned spare storage" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    m, n = 9, 4
+    i = 3
+    A = randn(m, n)
+    F = UpdatableQR(A)
+    # Poison storage strictly beyond row/column n+1: row n+1 of R is live working space for
+    # this verb (it ends the call holding the deleted row of A's coefficients before being
+    # re-zeroed), so only what is deeper than that is dead space the call must clear itself.
+    # Q's row dimension has no such distinction to poison here: `_deleterow!` owns clearing the
+    # single vacated row, and nothing in this verb ever touches a row beyond it.
+    Rbefore = getfield(F, :factors)
+    Qbefore = getfield(F, :qrep)
+    fill!(view(Rbefore, (F.n + 2):size(Rbefore, 1), :), 77.0)
+    fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), 77.0)
+    fill!(view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)), 88.0)
+    @test any(!iszero, view(Rbefore, (F.n + 2):size(Rbefore, 1), :))
+    @test any(!iszero, view(Rbefore, :, (F.n + 1):size(Rbefore, 2)))
+    @test any(!iszero, view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)))
+    delete_row!(F, i)
+    R = getfield(F, :factors)
+    Q = getfield(F, :qrep)
+    @test all(iszero, view(R, (F.n + 1):(F.n + 1), 1:n))
+    @test all(iszero, view(R, (F.n + 2):size(R, 1), :))
+    @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
+    @test all(iszero, view(Q.buf, (F.m + 1):size(Q.buf, 1), :))
+    @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+    @test norm(F.Q * F.R - A[setdiff(1:m, i), :]) / norm(A) < 1.0e-12
+    @test norm(F.Q' * F.Q - I) < 1.0e-12
+end
+
+@testitem "QR row deletion leaves the factorization exactly as it was on a throw" begin
+    using LinearAlgebra, Random
+
+    # A row of leverage one built from a generic combination of Q's columns, not a standard
+    # basis vector: the residual computed before the throw is then a nontrivial vector at the
+    # level of rounding, not an exact zero that would pass whether or not it is cleared.
+    Random.seed!(20260908)
+    m, n = 10, 4
+    A = vcat(hcat(randn(m - 1, n - 1), zeros(m - 1)), hcat(randn(1, n - 1), 1.0))
+    F = UpdatableQR(A)
+    qbufbefore = copy(getfield(F, :qrep).buf)
+    rbufbefore = copy(getfield(F, :factors))
+    err = try
+        delete_row!(F, m)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("row $m has leverage one", err.msg)
+    @test issuccess(F)
+    @test getfield(F, :qrep).buf == qbufbefore
+    @test getfield(F, :factors) == rbufbefore
+end
+
+@testitem "QR row deletion allocates nothing, independent of m" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    n = 15
+    for m in (20, 500)
+        A = randn(m, n)
+
+        F = UpdatableQR(A)
+        delete_row!(F, 3)   # warm: compile before measuring
+        G = UpdatableQR(A)
+        bytes = @allocated delete_row!(G, 3)
+        @test iszero(bytes)
+    end
+end
+
 @testitem "QR row insertion re-zeroes poisoned spare storage" begin
     using LinearAlgebra, Random
 

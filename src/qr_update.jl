@@ -93,7 +93,90 @@ function shift_columns!(F::UpdatableQR{T, S, <:DenseQ}, i::Integer, j::Integer) 
     return F
 end
 
-function delete_row! end
+"""
+    delete_row!(F::UpdatableQR, i; rtol = sqrt(eps(real(T)))) -> F
+
+Remove row `i` of the factored matrix, in `O(mn)` operations.
+
+The part of `e_i` orthogonal to the range of `Q` augments the factor to `m x (n+1)` columns, and
+`n` rotations move row `i` of that augmented factor onto its last column, which is then dropped
+along with the row. `gamma`, the norm of that orthogonal part, is the distance of `e_i` from the
+range of `Q`: it lies in `[0, 1]`, and it agrees with the smallest singular value of the
+remaining rows to several digits. `ArgumentError` is thrown, naming the row and `gamma`, when
+`gamma <= rtol`; the deleted row then has leverage one and the numerical rank of what remains has
+dropped, so the factorization that would be returned is a factorization of something else.
+
+`gamma` is computed as the norm of the residual rather than from `sqrt(1 - norm(Q'e_i)^2)`. The
+algebraic form subtracts nearly equal quantities: it reaches exactly zero for rows whose true
+`gamma` is around `1e-15`, and goes negative around `1e-9`, so it refuses accurate deletions and
+admits destructive ones.
+
+`DimensionMismatch` is thrown when the factorization is square, because the type admits only
+`m >= n`.
+
+Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the
+Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795.
+Reichel and Gragg, *Algorithm 686: FORTRAN subroutines for updating the QR decomposition*,
+ACM Transactions on Mathematical Software 16 (1990), 369-377.
+"""
+function delete_row!(
+        F::UpdatableQR{T, S, <:DenseQ}, i::Integer; rtol::Real = sqrt(eps(real(T)))
+    ) where {T, S}
+    m, n = F.m, F.n
+    1 <= i <= m || throw(BoundsError(F, i))
+    m > n || throw(
+        DimensionMismatch(
+            "deleting row $i would leave a $(m - 1)x$n factorization; " *
+                "the factorization requires m >= n"
+        )
+    )
+    q = getfield(F, :qrep)
+    Qa = _active(q)
+    t = view(F.work, 1:n)
+    corr = view(F.corr, 1:n)
+    z = _spare(q)
+    for k in 1:n
+        t[k] = conj(Qa[i, k])
+    end
+    mul!(z, Qa, t, -one(T), zero(T))
+    z[i] += one(T)
+    g = _project_residual!(t, z, Qa, corr)
+    if !(g > rtol)
+        # The projection built the augmentation direction in the spare column. Clearing it is
+        # what leaves the factorization as it was, and the next verb builds there.
+        _clearspare!(q)
+        throw(
+            ArgumentError(
+                "row $i has leverage one: gamma = $g; deleting it drops the numerical rank"
+            )
+        )
+    end
+    z ./= g
+    QA = _augmented(q)
+    RA = _raug(F)
+    for k in n:-1:1
+        # Rotating row i of [Q z] on the right by G' sends its k-th entry to c*a + conj(s)*b,
+        # with a = QA[i,k] and b = QA[i,n+1]; givensAlgorithm(-b, a) is the pair that makes it
+        # vanish. Descending k keeps R upper triangular, so it is not retriangularized.
+        a = QA[i, k]
+        b = QA[i, n + 1]
+        c, s, _ = givensAlgorithm(-b, a)
+        G = Givens(k, n + 1, oftype(a, c), oftype(a, s))
+        lmul!(G, RA)
+        rmul!(q, G')
+        QA[i, k] = zero(T)
+    end
+    _deleterow!(q, Int(i))
+    F.m = m - 1
+    # Re-establish zero storage outside the active block: row n+1 of R held the coefficients of
+    # the deleted row as working space, and nothing above assumes it, R's spare columns, or Q's
+    # spare columns were already zero on entry.
+    Rfull = getfield(F, :factors)
+    fill!(view(Rfull, (n + 1):size(Rfull, 1), :), zero(T))
+    fill!(view(Rfull, :, (n + 1):size(Rfull, 2)), zero(T))
+    fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
+    return F
+end
 
 # Project `r` onto the columns of `Qa`, leaving the coefficients in `w` and the residual in `r`,
 # and return the residual norm. The second pass is unconditional: with one pass the loss of
