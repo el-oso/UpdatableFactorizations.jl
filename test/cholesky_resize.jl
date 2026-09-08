@@ -47,3 +47,36 @@ end
     L = Matrix(F)
     @test norm(L * L' - A) / norm(A) < 1.0e-13
 end
+
+@testitem "Cholesky index shift, both directions" begin
+    using LinearAlgebra
+    n = 7
+    for uplo in (:L, :U), T in (Float64, ComplexF64)
+        B = randn(T, n, n)
+        A = Matrix(Hermitian(B * B' + n * I))
+        for i in 1:n, j in 1:n
+            F = UpdatableCholesky(cholesky(Hermitian(A, uplo)))
+            shift_columns!(F, i, j)
+            p = UpdatableFactorizations._cyclicperm(n, i, j)
+            L = Matrix(F)
+            @test norm(L * L' - A[p, p]) / norm(A) < 1.0e-12
+        end
+    end
+end
+
+@testitem "Cholesky symmetric insertion, every index" begin
+    using LinearAlgebra
+    n = 6
+    for uplo in (:L, :U), T in (Float64, ComplexF64)
+        B = randn(T, n + 1, n + 1)
+        A = Matrix(Hermitian(B * B' + (n + 1) * I))
+        for j in 1:(n + 1)
+            keep = [k for k in 1:(n + 1) if k != j]
+            F = UpdatableCholesky(cholesky(Hermitian(A[keep, keep], uplo)))
+            insert_column!(F, j, A[:, j])
+            L = Matrix(F)
+            @test size(F) == (n + 1, n + 1)
+            @test norm(L * L' - A) / norm(A) < 1.0e-12
+        end
+    end
+end
