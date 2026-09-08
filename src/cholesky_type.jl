@@ -7,6 +7,7 @@ deletion and shifting of indices. `capacity` is the largest size the factorizati
 before its storage is reallocated.
 
 The lower factor `L` of `A = L*L'` is what is stored, whichever triangle the input holds.
+`F.L` is that factor, `F.U` its adjoint, and `Matrix(F)` the reconstructed `A`.
 """
 mutable struct UpdatableCholesky{T, R <: Real, S <: AbstractMatrix{T}} <: Factorization{T}
     factors::S
@@ -47,10 +48,27 @@ UpdatableCholesky(A::AbstractMatrix; uplo::Symbol = :L, capacity::Int = 2size(A,
 _lower(F::UpdatableCholesky) = view(F.factors, 1:F.n, 1:F.n)
 
 Base.size(F::UpdatableCholesky) = (F.n, F.n)
-Base.size(F::UpdatableCholesky, i::Integer) = i <= 2 ? F.n : 1
-Base.Matrix(F::UpdatableCholesky) = LowerTriangular(Matrix(_lower(F)))
+function Base.size(F::UpdatableCholesky, dim::Integer)
+    dim < 1 && throw(ArgumentError("dimension must be positive, got $dim"))
+    return dim <= 2 ? F.n : 1
+end
+
+function Base.getproperty(F::UpdatableCholesky, s::Symbol)
+    s === :L && return LowerTriangular(_lower(F))
+    s === :U && return UpperTriangular(adjoint(_lower(F)))
+    return getfield(F, s)
+end
+
+Base.propertynames(::UpdatableCholesky, private::Bool = false) =
+    private ? (:L, :U, fieldnames(UpdatableCholesky)...) : (:L, :U)
+
+Base.AbstractMatrix(F::UpdatableCholesky) = (L = F.L; L * L')
+Base.Matrix(F::UpdatableCholesky) = Matrix(AbstractMatrix(F))
 
 capacity(F::UpdatableCholesky) = size(F.factors, 1)
+
+# Every operation either completes or throws with the factorization left as it was.
+LinearAlgebra.issuccess(::UpdatableCholesky) = true
 
 function LinearAlgebra.ldiv!(F::UpdatableCholesky, b::AbstractVecOrMat)
     L = LowerTriangular(_lower(F))
@@ -59,7 +77,6 @@ function LinearAlgebra.ldiv!(F::UpdatableCholesky, b::AbstractVecOrMat)
     return b
 end
 
-Base.:\(F::UpdatableCholesky, b::AbstractVecOrMat) = ldiv!(F, copy(b))
-
-LinearAlgebra.logdet(F::UpdatableCholesky) = 2 * sum(i -> log(real(_lower(F)[i, i])), 1:F.n)
+LinearAlgebra.logdet(F::UpdatableCholesky) =
+    2 * sum(i -> log(real(F.factors[i, i])), 1:F.n; init = zero(real(eltype(F.factors))))
 LinearAlgebra.det(F::UpdatableCholesky) = exp(logdet(F))

@@ -6,7 +6,7 @@
         v = randn(T, 7)
         F = UpdatableCholesky(cholesky(Hermitian(A, uplo)))
         lowrankupdate!(F, v)
-        L = Matrix(F)
+        L = F.L
         @test norm(L * L' - (A + v * v')) / norm(A) < 1.0e-13
     end
 end
@@ -37,7 +37,7 @@ end
         v = randn(T, 7) ./ 8
         F = UpdatableCholesky(cholesky(Hermitian(A, uplo)))
         lowrankdowndate!(F, v)
-        L = Matrix(F)
+        L = F.L
         @test norm(L * L' - (A - v * v')) / norm(A) < 1.0e-13
     end
 end

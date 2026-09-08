@@ -8,7 +8,7 @@
             F = UpdatableCholesky(cholesky(Hermitian(A, uplo)))
             delete_column!(F, j)
             keep = [k for k in 1:n if k != j]
-            L = Matrix(F)
+            L = F.L
             @test size(F) == (n - 1, n - 1)
             @test norm(L * L' - A[keep, keep]) / norm(A) < 1.0e-13
         end
@@ -31,7 +31,7 @@ end
         A = Matrix(Hermitian(B * B' + (n + 1) * I))
         F = UpdatableCholesky(cholesky(Hermitian(A[1:n, 1:n], uplo)))
         UpdatableFactorizations._append!(F, A[:, n + 1])
-        L = Matrix(F)
+        L = F.L
         @test size(F) == (n + 1, n + 1)
         @test norm(L * L' - A) / norm(A) < 1.0e-13
     end
@@ -44,7 +44,7 @@ end
     A = Matrix(Symmetric(B * B' + (n + 1) * I))
     F = UpdatableCholesky(cholesky(Symmetric(A[1:n, 1:n], :L)); capacity = n)
     UpdatableFactorizations._append!(F, A[:, n + 1])
-    L = Matrix(F)
+    L = F.L
     @test norm(L * L' - A) / norm(A) < 1.0e-13
 end
 
@@ -58,7 +58,7 @@ end
             F = UpdatableCholesky(cholesky(Hermitian(A, uplo)))
             shift_columns!(F, i, j)
             p = UpdatableFactorizations._cyclicperm!(zeros(Int, n), i, j)
-            L = Matrix(F)
+            L = F.L
             @test norm(L * L' - A[p, p]) / norm(A) < 1.0e-12
             @test all(x -> abs(imag(x)) < 1.0e-12 && real(x) > 0, diag(L))
             @test isfinite(logdet(F)) && isreal(logdet(F))
@@ -76,7 +76,7 @@ end
             keep = [k for k in 1:(n + 1) if k != j]
             F = UpdatableCholesky(cholesky(Hermitian(A[keep, keep], uplo)))
             insert_column!(F, j, A[:, j])
-            L = Matrix(F)
+            L = F.L
             @test size(F) == (n + 1, n + 1)
             @test norm(L * L' - A) / norm(A) < 1.0e-12
             @test all(x -> abs(imag(x)) < 1.0e-12 && real(x) > 0, diag(L))
