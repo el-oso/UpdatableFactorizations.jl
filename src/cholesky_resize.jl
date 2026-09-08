@@ -93,6 +93,19 @@ function _permute!(F::UpdatableCholesky, perm::AbstractVector{Int})
     L = _lower(F)
     B = Matrix(L)[perm, :]
     _lq!(B)
+    # A Cholesky factor is unique only up to a unit-modulus scaling of each column, and _lq!'s
+    # rotations do not constrain that scaling. Fix it so the diagonal is real and positive:
+    # scaling column k by s = conj(B[k,k])/abs(B[k,k]) leaves B*B' unchanged and sets B[k,k] to
+    # abs(B[k,k]).
+    for k in 1:n
+        dkk = B[k, k]
+        iszero(dkk) && continue
+        s = conj(dkk) / abs(dkk)
+        isone(s) && continue
+        for i in k:n
+            B[i, k] *= s
+        end
+    end
     for c in 1:n, r in 1:n
         L[r, c] = r >= c ? B[r, c] : zero(eltype(B))
     end

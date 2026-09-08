@@ -60,6 +60,8 @@ end
             p = UpdatableFactorizations._cyclicperm(n, i, j)
             L = Matrix(F)
             @test norm(L * L' - A[p, p]) / norm(A) < 1.0e-12
+            @test all(x -> abs(imag(x)) < 1.0e-12 && real(x) > 0, diag(L))
+            @test isfinite(logdet(F)) && isreal(logdet(F))
         end
     end
 end
@@ -77,6 +79,8 @@ end
             L = Matrix(F)
             @test size(F) == (n + 1, n + 1)
             @test norm(L * L' - A) / norm(A) < 1.0e-12
+            @test all(x -> abs(imag(x)) < 1.0e-12 && real(x) > 0, diag(L))
+            @test isfinite(logdet(F)) && isreal(logdet(F))
         end
     end
 end
