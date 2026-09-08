@@ -1,5 +1,3 @@
-using TypeContracts
-
 @invariants UpdatableCholesky begin
     "size is within capacity" => F -> 0 <= F.n <= size(F.factors, 1)
     "workspaces cover the active block" =>
