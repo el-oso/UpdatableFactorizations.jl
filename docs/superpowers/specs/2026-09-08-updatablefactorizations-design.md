@@ -268,8 +268,10 @@ Thin Q constrains two verbs, and the spec is explicit about both:
   because the type admits only `m >= n`.
 
 `GivensQ` does **not** save memory over thin `DenseQ`: both are `O(mn)`. Its purpose is to avoid
-paying to form Q at all, which section 3 measures at roughly 2.5x the cost of `geqrf` alone. It
-stores the rotation sequence and applies it on demand. The cost that grows is application: every
+paying to form Q at all. Section 3's measurements put `geqrf` at 196 ms and 1578 ms at n=2000 and
+n=4000 and `geqrf` followed by `Matrix(F.Q)` at 493 ms and 3958 ms, so the formation alone costs
+roughly 1.5x `geqrf` and the pair roughly 2.5x. It stores the rotation sequence and applies it on
+demand. The cost that grows is application: every
 verb appends `O(n)` to `O(m)` rotations, so apply time rises with the number of updates. The
 representation therefore carries a compaction policy — materialize to a `DenseQ` and restart the
 log once the log length exceeds a documented multiple of `n` — and `materialize(::GivensQ)` is
