@@ -180,3 +180,85 @@ function _grow!(F::UpdatableQR{T, S, <:DenseQ}, mneeded::Int, nneeded::Int) wher
     end
     return F
 end
+
+"""
+    ldiv!(y, F::UpdatableQR, b) -> y
+
+Overwrite `y` with the least-squares solution `R \\ (Q'b)`. `b` has length `size(F, 1)` and `y`
+length `size(F, 2)`. Allocates nothing.
+
+Both arguments are indexed from 1. The updating verbs accept offset vectors because they copy
+their argument into the factorization's own storage; the solve applies `Q'` to `b` in place and
+has nowhere to put an `m`-length copy.
+"""
+function LinearAlgebra.ldiv!(y::AbstractVector, F::UpdatableQR, b::AbstractVector)
+    Base.require_one_based_indexing(y, b)
+    length(b) == F.m ||
+        throw(DimensionMismatch("b has length $(length(b)), factorization is $(F.m)x$(F.n)"))
+    length(y) == F.n ||
+        throw(DimensionMismatch("y has length $(length(y)), factorization is $(F.m)x$(F.n)"))
+    mul!(y, F.Q', b)
+    ldiv!(UpperTriangular(_upper(F)), y)
+    return y
+end
+
+"""
+    ldiv!(F::UpdatableQR, B) -> B
+
+Overwrite the leading `size(F, 2)` rows of each column of `B` with its least-squares solution,
+matching `ldiv!(::QRCompactWY, ::AbstractVecOrMat)`. The trailing rows are left as they were.
+
+`B` is indexed from 1, as it is in the three-argument method.
+"""
+function LinearAlgebra.ldiv!(F::UpdatableQR, B::AbstractVecOrMat)
+    Base.require_one_based_indexing(B)
+    size(B, 1) == F.m ||
+        throw(DimensionMismatch("B has $(size(B, 1)) rows, factorization is $(F.m)x$(F.n)"))
+    y = view(F.work, 1:F.n)
+    for c in axes(B, 2)
+        col = view(B, :, c)
+        mul!(y, F.Q', col)
+        ldiv!(UpperTriangular(_upper(F)), y)
+        for k in 1:F.n
+            col[k] = y[k]
+        end
+    end
+    return B
+end
+
+"""
+    \\(F::UpdatableQR, B) -> X
+
+Least-squares solution of `F.Q * F.R * X = B`: `X` has `size(F, 2)` rows, whatever the shape of
+`B`, matching `\\(::QRCompactWY, ::AbstractVecOrMat)`. The element type of the solution is the
+promotion of `eltype(F)` and `eltype(B)`, as `\\(::Factorization, ::AbstractVecOrMat)` promotes,
+so an integer or narrower right-hand side is solved at the wider type rather than truncated.
+
+Unlike the two `ldiv!` methods, this does not reuse `F`'s scratch storage, which is fixed at
+`eltype(F)`: the promoted element type of a wider right-hand side, such as a complex one against
+a real `F`, would not fit it.
+"""
+function Base.:\(F::UpdatableQR, B::AbstractVecOrMat)
+    Base.require_one_based_indexing(B)
+    size(B, 1) == F.m ||
+        throw(DimensionMismatch("B has $(size(B, 1)) rows, factorization is $(F.m)x$(F.n)"))
+    TFB = typeof(oneunit(eltype(F)) \ oneunit(eltype(B)))
+    Y = _project(F, B, TFB)
+    ldiv!(UpperTriangular(_upper(F)), Y)
+    return Y
+end
+
+_project(F::UpdatableQR, b::AbstractVector, ::Type{TFB}) where {TFB} =
+    mul!(similar(b, TFB, Base.OneTo(F.n)), F.Q', b)
+_project(F::UpdatableQR, B::AbstractMatrix, ::Type{TFB}) where {TFB} =
+    mul!(similar(B, TFB, Base.OneTo(F.n), axes(B, 2)), F.Q', B)
+
+# LinearAlgebra reinterprets a real factorization applied to a complex right-hand side through
+# `\(::Factorization{T}, ::VecOrMat{Complex{T}}) where T<:BlasReal`, equally specific to the
+# method above (concrete on the factorization, abstract on the right-hand side, versus abstract
+# on the factorization, concrete on the right-hand side); neither dominates, so the two are
+# ambiguous unless something more specific than both is added. The method above already solves
+# a complex right-hand side against a real factorization correctly on its own, so this one only
+# needs to break the tie in its favor.
+Base.:\(F::UpdatableQR{T}, B::VecOrMat{Complex{T}}) where {T <: LinearAlgebra.BlasReal} =
+    invoke(\, Tuple{UpdatableQR, AbstractVecOrMat}, F, B)
