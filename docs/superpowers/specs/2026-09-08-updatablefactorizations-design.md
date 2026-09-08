@@ -230,6 +230,14 @@ literature:
 and readable, but are used for API taste and as benchmark comparisons rather than copied, so the
 package ships a single MIT notice.
 
+This record is published, not merely kept in this spec. The documentation carries a Provenance
+page stating, for every routine the package implements, which article it derives from, and
+listing every non-GPL reference implementation consulted together with what it was consulted
+for. The page states explicitly that `qrupdate-ng` source was not read. Each algorithm's
+docstring cites its source article, so the attribution is visible from the REPL as well as from
+the rendered documentation. Any reference implementation consulted after this spec is written is
+added to that page in the same commit as the code that consulted it.
+
 ## 7. Verification
 
 **TypeContracts.** `@contract` on `AbstractQRep` (`lmul!`, `rmul!`, `Matrix`, `size`) and on
@@ -269,7 +277,14 @@ must not appear in `Project.toml` or `test/Project.toml`.
 
 DocumenterVitepress, deployed with `DocumenterVitepress.deploydocs`. Pages: home, getting
 started, construction (Algorithms 1–3, carrying the section-3 table), updating and downdating,
-Q representations, benchmarks, API reference. Coveralls coverage badge, MIT badge.
+Q representations, benchmarks, provenance, API reference. Coveralls coverage badge, MIT badge.
+
+The provenance page carries two tables. The first maps every implemented routine to the article
+it derives from, using the citations in section 6. The second lists every non-GPL reference
+implementation consulted — currently `QRupdate.jl`, `UpdatableQRFactorizations.jl` and
+`UpdatableCholeskyFactorizations.jl`, all MIT — with its license and what it was consulted for,
+and records that `qrupdate-ng` source was not read and that `QRupdatesFast.jl` is used only as a
+benchmark target because it links GPL-3.0 code.
 
 Benchmarks are reproducible from a fresh checkout: every sample is written to
 `bench/results/*.json` and plots are regenerated from the saved data rather than by re-running.
@@ -296,6 +311,7 @@ pays at all for a given size and operation.
 | R12 | DocumenterVitepress docs with the honest LAPACK comparison | open |
 | R13 | Reproducible benchmarks with saved datapoints | open |
 | R14 | Benchmark gate re-run on a clock-locked host | open |
+| R15 | Provenance published in the docs: routine-to-article map, every non-GPL reference implementation consulted, and the statement that `qrupdate-ng` source was not read; each algorithm's docstring cites its article | open |
 
 ## 11. Non-goals
 
