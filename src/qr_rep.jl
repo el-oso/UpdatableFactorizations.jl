@@ -19,7 +19,7 @@ returns itself.
 function materialize end
 
 @contract AbstractQRep{T} "The orthonormal factor of an UpdatableQR." begin
-    Base.size(::Self)::Tuple{Int,Int} => "the shape of the active factor"
+    Base.size(::Self)::Tuple{Int, Int} => "the shape of the active factor"
     Base.copyto!(::AbstractMatrix, ::Self) => "write the active factor densely"
     materialize(::Self) => "an explicitly stored equivalent"
     LinearAlgebra.lmul!(::Givens, ::Self) => "apply a rotation on the left"
@@ -41,7 +41,7 @@ Orthonormal factor held explicitly: the leading `m x n` block of `buf`, with `m 
 outside that block is zero. Column `n+1` of `buf` always exists — it is the augmentation the
 updating verbs build in — and is zero except while a verb runs.
 """
-mutable struct DenseQ{T,S<:AbstractMatrix{T}} <: AbstractQRep{T}
+mutable struct DenseQ{T, S <: AbstractMatrix{T}} <: AbstractQRep{T}
     buf::S
     m::Int
     n::Int
@@ -50,7 +50,7 @@ end
 # The active factor, the factor plus its augmentation column, and that column alone. All three
 # are one concrete SubArray type, so every kernel has a single specialization.
 _active(q::DenseQ) = view(q.buf, 1:q.m, 1:q.n)
-_augmented(q::DenseQ) = view(q.buf, 1:q.m, 1:(q.n+1))
+_augmented(q::DenseQ) = view(q.buf, 1:q.m, 1:(q.n + 1))
 _spare(q::DenseQ) = view(q.buf, 1:q.m, q.n + 1)
 
 Base.size(q::DenseQ) = (q.m, q.n)
@@ -68,7 +68,7 @@ LinearAlgebra.rmul!(q::DenseQ, G::Givens) = (rmul!(_augmented(q), G); q)
 # rather than assuming the caller already left it that way.
 function _insertrow!(q::DenseQ{T}, i::Integer) where {T}
     for j in 1:q.n, r in q.m:-1:i
-        q.buf[r+1, j] = q.buf[r, j]
+        q.buf[r + 1, j] = q.buf[r, j]
     end
     for j in 1:q.n
         q.buf[i, j] = zero(T)
@@ -79,14 +79,14 @@ function _insertrow!(q::DenseQ{T}, i::Integer) where {T}
 end
 
 function _deleterow!(q::DenseQ{T}, i::Integer) where {T}
-    for j in 1:q.n, r in i:(q.m-1)
-        q.buf[r, j] = q.buf[r+1, j]
+    for j in 1:q.n, r in i:(q.m - 1)
+        q.buf[r, j] = q.buf[r + 1, j]
     end
-    for j in 1:(q.n+1)
+    for j in 1:(q.n + 1)
         q.buf[q.m, j] = zero(T)
     end
     for r in 1:q.m
-        q.buf[r, q.n+1] = zero(T)
+        q.buf[r, q.n + 1] = zero(T)
     end
     q.m -= 1
     return q
@@ -94,7 +94,7 @@ end
 
 function _dropcolumn!(q::DenseQ{T}) where {T}
     q.n -= 1
-    fill!(view(q.buf, :, (q.n+1):size(q.buf, 2)), zero(T))
+    fill!(view(q.buf, :, (q.n + 1):size(q.buf, 2)), zero(T))
     return q
 end
 

@@ -1,13 +1,13 @@
 using Documenter, DocumenterVitepress, UpdatableFactorizations
 
 makedocs(;
-    sitename="UpdatableFactorizations.jl",
-    modules=[UpdatableFactorizations],
-    repo=Documenter.Remotes.GitHub("el-oso", "UpdatableFactorizations.jl"),
-    format=DocumenterVitepress.MarkdownVitepress(
-        repo="github.com/el-oso/UpdatableFactorizations.jl",
+    sitename = "UpdatableFactorizations.jl",
+    modules = [UpdatableFactorizations],
+    repo = Documenter.Remotes.GitHub("el-oso", "UpdatableFactorizations.jl"),
+    format = DocumenterVitepress.MarkdownVitepress(
+        repo = "github.com/el-oso/UpdatableFactorizations.jl",
     ),
-    pages=[
+    pages = [
         "Home" => "index.md",
         "Getting started" => "getting_started.md",
         "Updating and downdating" => "updating.md",
@@ -17,6 +17,6 @@ makedocs(;
 )
 
 DocumenterVitepress.deploydocs(;
-    repo="github.com/el-oso/UpdatableFactorizations.jl",
-    push_preview=true,
+    repo = "github.com/el-oso/UpdatableFactorizations.jl",
+    push_preview = true,
 )

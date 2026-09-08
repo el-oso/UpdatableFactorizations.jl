@@ -104,10 +104,10 @@ function check(T, m, n)
     Q = GQ(F)
     Qe = Matrix(F.Q)                       # explicit thin, m x n
     x = randn(T, n); y = zeros(T, m)
-    @assert norm(apply!(y, Q, x) - Qe * x) < 1e-12
+    @assert norm(apply!(y, Q, x) - Qe * x) < 1.0e-12
     z = randn(T, m); w = zeros(T, n)
-    @assert norm(applyadj!(w, Q, z) - Qe' * z) < 1e-12
-    @assert norm(dense(Q) - Qe) < 1e-12
+    @assert norm(applyadj!(w, Q, z) - Qe' * z) < 1.0e-12
+    @assert norm(dense(Q) - Qe) < 1.0e-12
 
     # rmul! by a Givens inside 1:n matches rotating the explicit thin factor
     Qe2 = copy(Qe)
@@ -115,7 +115,7 @@ function check(T, m, n)
         G, _ = LinearAlgebra.givens(randn(T), randn(T), n - 1, n)
         push_rot!(Q, G)
         Qe2 = rmul!(copy(Qe), G)
-        @assert norm(dense(Q) - Qe2) < 1e-11 (T, m, n, norm(dense(Q) - Qe2))
+        @assert norm(dense(Q) - Qe2) < 1.0e-11 (T, m, n, norm(dense(Q) - Qe2))
     end
 
     # augment: q * beta == r for r orthogonal to range(Q)
@@ -125,13 +125,13 @@ function check(T, m, n)
     r = u - y2
     beta = augment!(Q, r)
     D = dense(Q)                            # m x (n+1)
-    @assert norm(D[:, n + 1] * beta - r) < 1e-11 (T, m, n, norm(D[:, n+1]*beta - r))
-    @assert norm(D' * D - I) < 1e-11
-    @assert abs(abs(beta) - norm(r)) < 1e-11
-    @assert norm(D[:, 1:n] - Qe2) < 1e-11
+    @assert norm(D[:, n + 1] * beta - r) < 1.0e-11 (T, m, n, norm(D[:, n + 1] * beta - r))
+    @assert norm(D' * D - I) < 1.0e-11
+    @assert abs(abs(beta) - norm(r)) < 1.0e-11
+    @assert norm(D[:, 1:n] - Qe2) < 1.0e-11
     # full matrix stays orthogonal
     Fm = fullmat(Q)
-    @assert norm(Fm' * Fm - I) < 1e-11
+    @assert norm(Fm' * Fm - I) < 1.0e-11
     return true
 end
 
@@ -145,17 +145,17 @@ println("all good")
 function check2(T, m, n)
     A = randn(T, m, n); Q = GQ(qr(A)); Qe = Matrix(qr(A).Q)
     Q.n = n - 1
-    @assert norm(dense(Q) - Qe[:, 1:(n - 1)]) < 1e-11
+    @assert norm(dense(Q) - Qe[:, 1:(n - 1)]) < 1.0e-11
     u = randn(T, m)
     w = zeros(T, n - 1); applyadj!(w, Q, u)
     y = zeros(T, m); apply!(y, Q, w)
     r = u - y
     b = augment!(Q, r)
     D = dense(Q)
-    @assert norm(D[:, n] * b - r) < 1e-10
-    @assert norm(D' * D - I) < 1e-10
-    @assert norm(D[:, 1:(n - 1)] - Qe[:, 1:(n - 1)]) < 1e-10
-    @assert abs(abs(b) - norm(r)) < 1e-10
+    @assert norm(D[:, n] * b - r) < 1.0e-10
+    @assert norm(D' * D - I) < 1.0e-10
+    @assert norm(D[:, 1:(n - 1)] - Qe[:, 1:(n - 1)]) < 1.0e-10
+    @assert abs(abs(b) - norm(r)) < 1.0e-10
     return true
 end
 

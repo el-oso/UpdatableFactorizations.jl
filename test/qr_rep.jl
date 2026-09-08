@@ -14,7 +14,7 @@ end
     buf = zeros(6, 5)
     A = qr(randn(m, n)).Q * Matrix(I, m, n)
     copyto!(view(buf, 1:m, 1:n), A)
-    q = DenseQ{Float64,Matrix{Float64}}(buf, m, n)
+    q = DenseQ{Float64, Matrix{Float64}}(buf, m, n)
 
     @test size(q) == (m, n)
     @test size(q, 1) == m
@@ -36,7 +36,7 @@ end
         m, n = 7, 4
         buf = zeros(T, m, n + 1)
         copyto!(view(buf, 1:m, 1:n), qr(randn(T, m, n)).Q * Matrix{T}(I, m, n))
-        q = DenseQ{T,Matrix{T}}(buf, m, n)
+        q = DenseQ{T, Matrix{T}}(buf, m, n)
         c, s, _ = LinearAlgebra.givensAlgorithm(one(T), one(T))
         G = LinearAlgebra.Givens(2, 3, T(c), T(s))
 
@@ -69,22 +69,22 @@ end
     buf = fill(99.0, m + 1, n + 1)
     B = randn(m, n)
     copyto!(view(buf, 1:m, 1:n), B)
-    q = DenseQ{Float64,Matrix{Float64}}(buf, m, n)
+    q = DenseQ{Float64, Matrix{Float64}}(buf, m, n)
 
     _insertrow!(q, 2)
     @test size(q) == (m + 1, n)
     @test view(q.buf, 2, 1:n) == zeros(n)
-    @test view(q.buf, 3:(m+1), 1:n) == B[2:m, :]
+    @test view(q.buf, 3:(m + 1), 1:n) == B[2:m, :]
     @test all(iszero, view(q.buf, :, n + 1))
 
     _deleterow!(q, 2)
     @test size(q) == (m, n)
     @test view(q.buf, 1:m, 1:n) == B
-    @test all(iszero, view(q.buf, (m+1):(m+1), :))
+    @test all(iszero, view(q.buf, (m + 1):(m + 1), :))
     @test all(iszero, _spare(q))
 
     fill!(view(q.buf, :, n + 1), 99.0) # poison the augmentation column again before dropping a column
     _dropcolumn!(q)
     @test size(q) == (m, n - 1)
-    @test all(iszero, view(q.buf, :, n:(n+1)))
+    @test all(iszero, view(q.buf, :, n:(n + 1)))
 end
