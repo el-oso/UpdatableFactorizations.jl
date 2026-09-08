@@ -1,5 +1,6 @@
 @testitem "Cholesky symmetric deletion, every index" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     for uplo in (:L, :U), T in (Float64, ComplexF64)
         n = 7
         B = randn(T, n, n)
@@ -16,7 +17,8 @@
 end
 
 @testitem "Cholesky deletion rejects an out-of-range index" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     B = randn(5, 5)
     F = UpdatableCholesky(cholesky(Symmetric(Matrix(Symmetric(B * B' + 5I)), :L)))
     @test_throws BoundsError delete_column!(F, 6)
@@ -24,7 +26,8 @@ end
 end
 
 @testitem "Cholesky append at the end" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     for uplo in (:L, :U), T in (Float64, ComplexF64)
         n = 6
         B = randn(T, n + 1, n + 1)
@@ -38,7 +41,8 @@ end
 end
 
 @testitem "Cholesky append grows past capacity" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     n = 4
     B = randn(n + 1, n + 1)
     A = Matrix(Symmetric(B * B' + (n + 1) * I))
@@ -49,7 +53,8 @@ end
 end
 
 @testitem "Cholesky index shift, both directions" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     n = 7
     for uplo in (:L, :U), T in (Float64, ComplexF64)
         B = randn(T, n, n)
@@ -67,7 +72,8 @@ end
 end
 
 @testitem "Cholesky symmetric insertion, every index" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     n = 6
     for uplo in (:L, :U), T in (Float64, ComplexF64)
         B = randn(T, n + 1, n + 1)

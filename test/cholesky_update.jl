@@ -1,5 +1,6 @@
 @testitem "Cholesky rank-1 update" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     for uplo in (:L, :U), T in (Float64, ComplexF64)
         B = randn(T, 7, 7)
         A = Matrix(Hermitian(B * B' + 7I))
@@ -12,7 +13,8 @@
 end
 
 @testitem "Cholesky rank-1 update does not consume its vector" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     B = randn(6, 6)
     A = Matrix(Symmetric(B * B' + 6I))
     v = randn(6)
@@ -23,14 +25,16 @@ end
 end
 
 @testitem "Cholesky rank-1 update rejects a mismatched vector" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     B = randn(6, 6)
     F = UpdatableCholesky(cholesky(Symmetric(Matrix(Symmetric(B * B' + 6I)), :L)))
     @test_throws "has length 5, factorization is 6" lowrankupdate!(F, randn(5))
 end
 
 @testitem "Cholesky rank-1 downdate" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     for uplo in (:L, :U), T in (Float64, ComplexF64)
         B = randn(T, 7, 7)
         A = Matrix(Hermitian(B * B' + 7I))
@@ -43,7 +47,8 @@ end
 end
 
 @testitem "Cholesky downdate past positive definiteness throws" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     B = randn(6, 6)
     A = Matrix(Symmetric(B * B' + 6I))
     F = UpdatableCholesky(cholesky(Symmetric(A, :L)))

@@ -1,5 +1,6 @@
 @testitem "UpdatableCholesky reconstructs its matrix" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     for uplo in (:L, :U), T in (Float64, ComplexF64)
         B = randn(T, 6, 6)
         A = Matrix(Hermitian(B * B' + 6I))
@@ -11,7 +12,8 @@
 end
 
 @testitem "UpdatableCholesky ignores the unstored triangle" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     B = randn(6, 6)
     A = Matrix(Symmetric(B * B' + 6I))
     C = cholesky(Symmetric(A, :L))
@@ -22,7 +24,8 @@ end
 end
 
 @testitem "UpdatableCholesky solves" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     B = randn(6, 6)
     A = Matrix(Symmetric(B * B' + 6I))
     b = randn(6)
@@ -31,7 +34,8 @@ end
 end
 
 @testitem "UpdatableCholesky reconstructs the factored matrix" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     for uplo in (:L, :U), T in (Float64, ComplexF64)
         B = randn(T, 5, 5)
         A = Matrix(Hermitian(B * B' + 5I))

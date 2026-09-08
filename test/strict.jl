@@ -1,5 +1,6 @@
 @testitem "LU rank-1 update is type stable and allocates nothing" begin
-    using LinearAlgebra, StrictModeTest
+    using LinearAlgebra, StrictModeTest, Random
+    Random.seed!(20260908)
     n = 8
     G = UpdatableLU(lu(randn(n, n) + n * I))
     u = randn(n)
@@ -9,9 +10,10 @@
 end
 
 @testitem "factorization invariants hold after every operation" begin
-    using LinearAlgebra, Test
+    using LinearAlgebra, Test, Random
     using UpdatableFactorizations: TypeContracts
     using .TypeContracts: behavior_passes
+    Random.seed!(20260908)
     n = 7
     B = randn(n, n)
     A = Matrix(Symmetric(B * B' + n * I))
@@ -33,7 +35,8 @@ end
 end
 
 @testitem "Cholesky resizing allocates nothing after construction" begin
-    using LinearAlgebra
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
     function measure(n)
         function mk()
             B = randn(n, n)
