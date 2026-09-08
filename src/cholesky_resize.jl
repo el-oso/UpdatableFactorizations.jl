@@ -45,21 +45,22 @@ function _grow!(F::UpdatableCholesky{T}, needed::Int) where {T}
     return F
 end
 
-# Append a new last index. `x` has length n+1, with x[n+1] the new diagonal entry.
+# Append a new last index. `x` has length n+1, with its last entry the new diagonal entry.
 function _append!(F::UpdatableCholesky{T}, x::AbstractVector) where {T}
     n = F.n
     length(x) == n + 1 ||
         throw(DimensionMismatch("x has length $(length(x)), expected $(n + 1)"))
     L = _lower(F)
     l = view(F.work, 1:n)
+    ix = firstindex(x) - 1
     for i in 1:n
-        acc = x[i]
+        acc = x[ix + i]
         for k in 1:(i - 1)
             acc -= L[i, k] * l[k]
         end
         l[i] = acc / L[i, i]
     end
-    d = real(x[n + 1]) - sum(abs2, l)
+    d = real(x[ix + n + 1]) - sum(abs2, l)
     d > 0 || throw(PosDefException(n + 1))
     _grow!(F, n + 1)
     F.n = n + 1
@@ -187,13 +188,14 @@ function insert_column!(F::UpdatableCholesky, j::Integer, x::AbstractVector)
     # Growing here leaves _append!'s own growth a no-op, so `y` stays a view of live storage.
     _grow!(F, n + 1)
     y = view(F.rot, 1:(n + 1))
+    ix = firstindex(x) - 1
     for k in 1:(j - 1)
-        y[k] = x[k]
+        y[k] = x[ix + k]
     end
     for k in (j + 1):(n + 1)
-        y[k - 1] = x[k]
+        y[k - 1] = x[ix + k]
     end
-    y[n + 1] = x[j]
+    y[n + 1] = x[ix + j]
     _append!(F, y)
     return j == n + 1 ? F : shift_columns!(F, n + 1, Int(j))
 end
