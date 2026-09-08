@@ -37,6 +37,8 @@ mutable struct UpdatableQR{T, S <: AbstractMatrix{T}, Q <: AbstractQRep{T}} <: F
     n::Int
     work::Vector{T}  # scratch: projection coefficients, consumed in place
     corr::Vector{T}  # scratch: the reorthogonalization correction, consumed in place
+    rscratch::S      # (ncap+1) x ncap; holds a candidate R while lowrankupdate! checks it for
+    #                  rank deficiency, live only for the duration of that check
 end
 
 function UpdatableQR(
@@ -68,7 +70,7 @@ function UpdatableQR(
     end
     return UpdatableQR{T, Matrix{T}, DenseQ{T, Matrix{T}}}(
         DenseQ{T, Matrix{T}}(qbuf, m, n), rbuf, m, n,
-        zeros(T, ncap + 1), zeros(T, ncap + 1)
+        zeros(T, ncap + 1), zeros(T, ncap + 1), zeros(T, ncap + 1, ncap)
     )
 end
 
@@ -109,7 +111,7 @@ function UpdatableQR(
     end
     return UpdatableQR{T, Matrix{T}, DenseQ{T, Matrix{T}}}(
         DenseQ{T, Matrix{T}}(qbuf, m, n), rbuf, m, n,
-        zeros(T, ncap + 1), zeros(T, ncap + 1)
+        zeros(T, ncap + 1), zeros(T, ncap + 1), zeros(T, ncap + 1, ncap)
     )
 end
 
@@ -177,6 +179,9 @@ function _grow!(F::UpdatableQR{T, S, <:DenseQ}, mneeded::Int, nneeded::Int) wher
         F.factors = rbuf
         resize!(F.work, newn + 1)
         resize!(F.corr, newn + 1)
+        # `rscratch` never carries a value across calls, so growing it is a fresh allocation
+        # rather than a copy, unlike `factors`.
+        F.rscratch = zeros(T, newn + 1, newn)
     end
     return F
 end

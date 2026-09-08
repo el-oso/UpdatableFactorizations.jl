@@ -136,6 +136,7 @@ end
         q = getfield(F, :qrep)
         oldqbuf = q.buf
         Rbefore = getfield(F, :factors)
+        rscratchbefore = getfield(F, :rscratch)
         # Poison the dead space beyond the active block and its single augmentation
         # column/row: a correct `_grow!` never reads from there, so if a broken copy read
         # too wide, this leaks into the regrown buffer instead of its fresh zero fill.
@@ -157,14 +158,21 @@ end
         @test all(iszero, view(q.buf, :, (F.n + 2):(newncap + 1)))
 
         R = getfield(F, :factors)
+        rscratch = getfield(F, :rscratch)
         if growsn
             @test R !== Rbefore
             @test all(iszero, view(R, (F.n + 1):(newncap + 1), :))
             @test all(iszero, view(R, :, (F.n + 1):(newncap + 1)))
+            # `rscratch` grows alongside `factors`, to the shape `lowrankupdate!`'s guard needs
+            # at the new capacity: one row beyond `newncap`, no augmentation column.
+            @test rscratch !== rscratchbefore
+            @test size(rscratch) == (newncap + 1, newncap)
         else
             # Growing rows alone must not disturb R: same object, poison untouched.
             @test R === Rbefore
             @test all(==(99.0), view(R, (n + 1):(ncap + 1), :))
+            @test rscratch === rscratchbefore
+            @test size(rscratch) == (ncap + 1, ncap)
         end
     end
 end

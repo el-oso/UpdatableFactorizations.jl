@@ -118,6 +118,12 @@ function _project_residual!(w, r, Qa, corr)
     return norm(r)
 end
 
+# A destination for `_absorb_spike!`'s rotations that discards them: holding no data, it costs
+# nothing to construct or to rotate, so a caller that only wants the resulting `RA` mirrors
+# onto this instead of a real `Q`.
+struct _NoQ{T} <: AbstractQRep{T} end
+LinearAlgebra.rmul!(::_NoQ, ::Givens) = nothing
+
 # Chase the spike `z` into `RA` with Givens rotations, add the rank-1 correction to row 1 of
 # `RA`, and retriangularize, mirroring every rotation onto `q`. The sequence of rotations
 # depends only on `z` and `RA`, never on `q`'s entries, so calling this once on a scratch `RA`,
@@ -160,9 +166,9 @@ noise, so a later solve through it divides by that noise. `rtol = 0` skips the c
 admitting any update including an exactly singular one, matching a plain re-triangularization
 with no rank check and costing nothing beyond it.
 
-When `rtol` is nonzero, the candidate `R` is computed on a scratch copy, and the check runs
-against it, before `Q` or the stored factor are touched; a thrown update therefore leaves the
-factorization exactly as it was.
+When `rtol` is nonzero, the candidate `R` is computed in `F`'s own scratch storage, and the
+check runs against it, before `Q` or the stored factor are touched; a thrown update therefore
+leaves the factorization exactly as it was. This call allocates nothing, at any `rtol`.
 
 Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the
 Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795.
@@ -203,16 +209,15 @@ function LinearAlgebra.lowrankupdate!(
 
     if !iszero(rtol)
         # Determine the outcome on a scratch copy before touching `Q` or the stored factor:
-        # `dummy` is a zero-row `DenseQ` sharing `RA`'s element type, so the rotations
-        # `_absorb_spike!` mirrors onto it are no-ops, and only `RS` records the candidate
-        # triangular factor. `zs` reuses `F.corr`: nothing below reads `corr`'s contents again
-        # once `_project!` has returned, and it is already sized to `ncap + 1`.
-        RS = copy(RA)
+        # `_NoQ` discards the rotations `_absorb_spike!` mirrors onto it, and only `RS` records
+        # the candidate triangular factor. `zs` reuses `F.corr` and `RS` reuses `F.rscratch`:
+        # nothing below reads `corr`'s contents again once `_project!` has returned, and both
+        # are already sized to capacity.
+        RS = view(F.rscratch, 1:(n + 1), 1:n)
+        copyto!(RS, RA)
         zs = view(F.corr, 1:(n + 1))
         copyto!(zs, z)
-        dummybuf = similar(q.buf, 0, n + 1)
-        dummy = DenseQ{T, typeof(dummybuf)}(dummybuf, 0, n)
-        _absorb_spike!(RS, zs, dummy, v, iv, n, last)
+        _absorb_spike!(RS, zs, _NoQ{T}(), v, iv, n, last)
         for j in 1:n
             colnorm = norm(view(RS, 1:j, j))
             abs(RS[j, j]) > rtol * colnorm && continue

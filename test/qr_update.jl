@@ -309,6 +309,8 @@ end
         v[j] = one(T)
 
         F = UpdatableQR(A)
+        qbufbefore = copy(getfield(F, :qrep).buf)
+        rbufbefore = copy(getfield(F, :factors))
         err = try
             lowrankupdate!(F, u, v)
             nothing
@@ -319,11 +321,14 @@ end
         @test occursin("column $j", err.msg)
         @test occursin("rank deficient", err.msg)
         # The throw left the factorization exactly as it was: it still reconstructs `A`, not
-        # `A + u*v'`, `issuccess` holds, and the scratch storage the guard used is clean.
+        # `A + u*v'`, `issuccess` holds, and the scratch storage the guard used is clean. The
+        # raw buffers are bit-identical to what they were before the call, not merely close.
         @test norm(F.Q * F.R - A) / norm(A) < 1.0e-12
         @test issuccess(F)
         Q = getfield(F, :qrep)
         R = getfield(F, :factors)
+        @test Q.buf == qbufbefore
+        @test R == rbufbefore
         @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
         @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
         @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
@@ -360,6 +365,8 @@ end
         v[j] = one(T)
 
         F = UpdatableQR(A)
+        qbufbefore = copy(getfield(F, :qrep).buf)
+        rbufbefore = copy(getfield(F, :factors))
         err = try
             lowrankupdate!(F, u, v)
             nothing
@@ -369,6 +376,10 @@ end
         @test err isa ArgumentError
         @test occursin("rank deficient", err.msg)
         @test norm(F.Q * F.R - A) / norm(A) < 1.0e-12
+        # This branch genuinely builds a residual direction in the augmentation column before
+        # the guard runs, so a bit-identical raw buffer here confirms the cleanup, not luck.
+        @test getfield(F, :qrep).buf == qbufbefore
+        @test getfield(F, :factors) == rbufbefore
         @test issuccess(F)
         Q = getfield(F, :qrep)
         @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
@@ -390,7 +401,7 @@ end
     end
 end
 
-@testitem "QR rank-1 update at rtol = 0 allocates nothing, independent of m" begin
+@testitem "QR rank-1 update allocates nothing, at the default rtol and at rtol = 0, independent of m" begin
     using LinearAlgebra, Random
 
     Random.seed!(20260908)
@@ -399,10 +410,17 @@ end
         A = randn(m, n)
         u = randn(m)
         v = randn(n)
+
         F = UpdatableQR(A)
         lowrankupdate!(F, u, v; rtol = 0.0)   # warm: compile before measuring
         G = UpdatableQR(A)
-        bytes = @allocated lowrankupdate!(G, u, v; rtol = 0.0)
-        @test bytes == 0
+        bytes0 = @allocated lowrankupdate!(G, u, v; rtol = 0.0)
+        @test iszero(bytes0)
+
+        H = UpdatableQR(A)
+        lowrankupdate!(H, u, v)               # warm the default-rtol path separately
+        K = UpdatableQR(A)
+        bytesdefault = @allocated lowrankupdate!(K, u, v)
+        @test iszero(bytesdefault)
     end
 end
