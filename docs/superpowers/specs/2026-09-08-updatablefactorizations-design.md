@@ -1,7 +1,7 @@
 # UpdatableFactorizations.jl — design
 
 Date: 2026-09-08
-Status: approved, with two open decisions marked in section 10
+Status: approved
 
 ## 1. Purpose
 
@@ -10,13 +10,27 @@ modification — rank-1 update and downdate, column and row insertion and deleti
 shifts — and that can build those factorizations itself using the blocked algorithms of
 Camarero (2018).
 
+The package exists for four operations that have no pure-Julia implementation anywhere:
+
+| operation | needed by |
+| --- | --- |
+| `qr1up`, QR rank-1 update | recursive least squares, Broyden and quasi-Newton, active-set QP |
+| `lu1up`, `lup1up`, LU rank-1 update | simplex and active-set methods, sensitivity analysis |
+| `qrder`, QR row deletion | sliding-window least squares, leave-one-out |
+
+The immediate consumers are the active-set and interior-point QP solvers in this ecosystem —
+`PureLSQP.jl`, `PureOSQP.jl`, `PureIPM.jl`. Adding or dropping a constraint in an active-set
+method is a column insertion or deletion plus a rank-1 update, and PureLSQP's solve budget does
+not admit refactorizing from scratch on a warm start. That is the concrete need this package
+serves.
+
 Two things are in scope, in this order of importance:
 
-1. **The updating layer.** Six of `qrupdate`'s thirteen operations have no pure-Julia
-   implementation at all: QR rank-1 update, QR row deletion, both column shifts, and all LU
-   updating. A seventh, symmetric Cholesky insertion, exists only for appending at the end.
-   Nothing provides one interface across all three factorizations, and nothing manages capacity
-   so that a sequence of insertions does not reallocate.
+1. **The updating layer.** The four operations above, plus the two column shifts (`qrshc`,
+   `chshx`) which are also missing, plus symmetric Cholesky insertion at an arbitrary index
+   rather than only at the end. The remaining routines are reimplemented so that one interface
+   covers all three factorizations with a consistent Q representation and with capacity managed
+   so that a sequence of insertions does not reallocate — which nothing available today does.
 2. **The construction layer.** Camarero's Algorithms 1–3, which produce factorizations in the
    representation the updating layer wants — explicit thin Q, directly addressable L, U and R —
    and which give a blocked unpivoted LU where the standard library has only an unblocked one.
@@ -56,6 +70,13 @@ Coverage of `qrupdate`'s 13 routines by non-GPL pure-Julia code:
 
 Six are unserved and a seventh only partly. What exists is spread across the standard library
 and three packages, with three different Q representations and no common interface.
+
+The standard library's two are Givens-based, `O(n^2)`, in place, work on either `uplo`, and are
+generic in the element type. Their limits, which the package's versions lift: they dispatch on
+`Cholesky` only, so `CholeskyPivoted` is unsupported; they are rank-1 only; they cannot resize;
+and they destroy the update vector, so a loop of updates must copy it each iteration. The
+downdate uses the direct hyperbolic form; Bojanczyk et al. document the mixed form as more
+stable near breakdown, which is the form section 5 specifies.
 
 `QRupdatesFast.jl` reaches all thirteen but links GPL-3.0 code, so it cannot be a dependency of
 an MIT package.
@@ -358,9 +379,7 @@ TypeContracts both require 1.12, so the usual 1.10-LTS floor is not reachable. S
 must not appear in `Project.toml` or `test/Project.toml`.
 
 Registration in General (M4) is gated on `StrictMode`, `StrictModeTest` and `TypeContracts`
-being registered — all three are — and on any weak dependency being registered too. `PureBLAS`
-is **not** in General, which is one of the two reasons section 10 proposes dropping the PureBLAS
-extension.
+being registered. All three are. The package has no weak dependencies, so nothing else gates it.
 
 ## 9. Documentation and benchmarks
 
@@ -392,7 +411,7 @@ for a given size and operation.
 | R3 | LU ships both unpivoted and partially pivoted forms, pivoting per section 4 | open |
 | R4 | QR handles rectangular `m >= n`, with optional reorthogonalization | open |
 | R5 | Householder QR path delegates to `LinearAlgebra.qr`, not hand-written | open |
-| R6 | Substitutable flush: `matmul!` and `rankk!` keyword arguments | **decision D1** |
+| R6 | Substitutable flush: `matmul!` and `rankk!` keyword arguments, no abstract type, no extension | open |
 | R7 | All 13 `qrupdate` routines, as 7 dispatching verbs, extending stdlib where it exists | open |
 | R8 | Implicit-Givens Q representation with a documented compaction policy | open |
 | R9 | TypeContracts contract on `AbstractQRep`, invariants on the types | open |
@@ -402,23 +421,24 @@ for a given size and operation.
 | R13 | Reproducible benchmarks with saved datapoints | open |
 | R14 | M1 gate on a clock-locked host, including pivoted LU and non-BLAS eltype cells | open |
 | R15 | Provenance published in the docs, and cited in every algorithm's docstring | open |
-| R16 | Milestone order | **decision D2** |
+| R16 | The four QP-facing routines land before the construction layer | open |
 
-**D1 — the PureBLAS extension.** The approved design had a pluggable matmul behind an
-`AbstractMatMul` type with a contract, plus a PureBLAS extension. Two measurements since argue
-against it: `PureBLAS.activate()` makes `getrf` 2.7x and `geqrf` 3.6x slower than OpenBLAS, and
-PureBLAS is not registered in General, so it cannot be a registered weak dependency. This spec
-therefore proposes plain `matmul!` and `rankk!` keyword arguments defaulting to stdlib, with no
-abstract type, no contract and no extension. The substitutability the approved design asked for
-is preserved; only the machinery is dropped. **Requires confirmation.**
+Two decisions were taken against earlier choices, on evidence gathered after those choices were
+made, and are recorded here so the reasoning is not lost.
 
-**D2 — milestone order.** The approved order was M0, M1, M2, M3, M4. Section 4 states Layer 3
-does not depend on Layer 2, and M0 already provides Layer-1 types with standard-library
-constructors, so M1 and M2 are independent. Running M2 before M1 lets the updating layer
-discover what it needs from the representation — workspace fields, capacity growth, thin-Q row
-deletion — before Layer 2 is written to produce it. This spec therefore proposes M0, M2, M1,
-M3, M4, with M2 split into a Cholesky-and-LU part (no resizing) and a QR part.
-**Requires confirmation.**
+**The PureBLAS extension is dropped.** The earlier design had a pluggable matmul behind an
+`AbstractMatMul` type with a contract, plus a PureBLAS extension. Two measurements argue against
+it: `PureBLAS.activate()` makes `getrf` 2.7x and `geqrf` 3.6x slower than OpenBLAS, and PureBLAS
+is not registered in General, so it cannot be a registered weak dependency. The flush is instead
+the plain `matmul!` and `rankk!` keyword arguments of section 4, defaulting to stdlib, with no
+abstract type, no contract and no extension. Substitutability is preserved; only the machinery
+is dropped. The extension can return once PureBLAS is registered and measured non-regressing.
+
+**The updating layer is built before the construction layer.** Section 4 states Layer 3 does not
+depend on Layer 2, and M0 already provides Layer-1 types with standard-library constructors, so
+the two are independent. Building the updating layer first lets it discover what it needs from
+the representation — workspace fields, capacity growth, thin-Q row deletion — before Layer 2 is
+written to produce it, and it reaches the QP solvers' four missing routines soonest.
 
 ## 11. Non-goals
 
@@ -433,8 +453,6 @@ M3, M4, with M2 split into a Cholesky-and-LU part (no resizing) and a QR part.
 - Multithreading. Single-threaded throughout.
 
 ## 12. Milestones
-
-Order subject to decision D2. Under the proposed order:
 
 - **M0** — package skeleton, CI, Coveralls, documentation shell, contracts, Layer-1 types with
   capacity and workspace, standard-library constructors, `\` and `ldiv!`.
