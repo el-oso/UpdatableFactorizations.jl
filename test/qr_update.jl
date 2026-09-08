@@ -67,3 +67,72 @@ end
         @test norm(Matrix(q)' * Matrix(q) - I) < 1.0e-12
     end
 end
+
+@testitem "QR column shifting, every index pair" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((10, 5), (7, 7))
+        A = randn(T, m, n)
+        @test norm(A' * A - I) > 1
+        for i in 1:n, j in 1:n
+            F = UpdatableQR(A)
+            shift_columns!(F, i, j)
+            p = collect(1:n)
+            deleteat!(p, i)
+            insert!(p, j, i)
+            @test norm(F.Q * F.R - A[:, p]) / norm(A) < 1.0e-12
+            @test norm(F.Q' * F.Q - I) < 1.0e-12
+            R = getfield(F, :factors)
+            @test all(iszero, [R[i, j] for j in 1:F.n for i in (j + 1):F.n])
+            @test all(iszero, view(R, :, (n + 1):size(R, 2)))
+        end
+    end
+end
+
+@testitem "QR column shifting re-zeroes poisoned spare storage" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((10, 5), (7, 7))
+        A = randn(T, m, n)
+        for i in 1:n, j in 1:n
+            F = UpdatableQR(A)
+            # Poison storage outside the active block before shifting: `shift_columns!` must
+            # re-establish the zero invariant itself, not rely on it already holding.
+            Qbefore = getfield(F, :qrep)
+            Rbefore = getfield(F, :factors)
+            fill!(view(Rbefore, (F.n + 1):size(Rbefore, 1), :), T(77))
+            fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), T(77))
+            fill!(view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)), T(88))
+            @test any(!iszero, view(Rbefore, (F.n + 1):size(Rbefore, 1), :))
+            @test any(!iszero, view(Rbefore, :, (F.n + 1):size(Rbefore, 2)))
+            @test any(!iszero, view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)))
+            shift_columns!(F, i, j)
+            Q = getfield(F, :qrep)
+            R = getfield(F, :factors)
+            @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
+            @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
+            @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+        end
+    end
+end
+
+@testitem "QR column shifting rejects out-of-range indices" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    F = UpdatableQR(randn(8, 4))
+    @test_throws BoundsError shift_columns!(F, 5, 1)
+    # `err.a === F` pins the exception to the explicit bounds check rather than an incidental
+    # `BoundsError` from indexing into internal storage with the unvalidated argument.
+    err = try
+        shift_columns!(F, 1, 0)
+        nothing
+    catch e
+        e
+    end
+    @test err isa BoundsError
+    @test err.a === F
+    @test iszero(err.i)
+end

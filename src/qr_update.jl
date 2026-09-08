@@ -46,5 +46,52 @@ function delete_column!(F::UpdatableQR{T, S, <:DenseQ}, j::Integer) where {T, S}
     return F
 end
 
+"""
+    shift_columns!(F::UpdatableQR, i, j) -> F
+
+Move column `i` of the factored matrix to position `j`, sliding the columns between them by one,
+in `O(|i - j|(m + n))` operations.
+
+Moving a column right leaves `R` upper Hessenberg over the columns it passed; moving it left
+leaves a single spike in column `j`. Rotations clear both.
+
+Reichel and Gragg, *Algorithm 686: FORTRAN subroutines for updating the QR decomposition*,
+ACM Transactions on Mathematical Software 16 (1990), 369-377.
+"""
+function shift_columns!(F::UpdatableQR{T, S, <:DenseQ}, i::Integer, j::Integer) where {T, S}
+    n = F.n
+    1 <= i <= n || throw(BoundsError(F, i))
+    1 <= j <= n || throw(BoundsError(F, j))
+    q = getfield(F, :qrep)
+    R = getfield(F, :factors)
+    if i != j
+        hold = _rspare(F)
+        for r in 1:n
+            hold[r] = R[r, i]
+        end
+        if i < j
+            for c in i:(j - 1), r in 1:n
+                R[r, c] = R[r, c + 1]
+            end
+        else
+            for c in i:-1:(j + 1), r in 1:n
+                R[r, c] = R[r, c - 1]
+            end
+        end
+        for r in 1:n
+            R[r, j] = hold[r]
+            hold[r] = zero(T)
+        end
+        _retriangularize!(view(R, 1:n, 1:n), q)
+    end
+    # Re-establish zero storage outside the active block: `n` does not change here, so nothing
+    # above assumes the spare column, spare row, or Q's trailing columns were already zero, and
+    # the invariant must hold whether or not `i == j` skipped the shift itself.
+    fill!(view(R, (n + 1):size(R, 1), :), zero(T))
+    fill!(view(R, :, (n + 1):size(R, 2)), zero(T))
+    fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
+    return F
+end
+
 function insert_row! end
 function delete_row! end
