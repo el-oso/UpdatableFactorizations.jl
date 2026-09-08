@@ -465,6 +465,7 @@ end
 
 @testitem "UpdatableQR exposes live views of its factors" begin
     using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity
 
     Random.seed!(20260908)
     F = UpdatableQR(randn(7, 4))
@@ -1352,6 +1353,7 @@ end
 
 @testitem "QR column insertion grows past its capacity" begin
     using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity
 
     Random.seed!(20260908)
     m, n = 10, 4
@@ -1367,6 +1369,7 @@ end
 
 @testitem "QR column insertion rejects a dependent column" begin
     using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity
 
     Random.seed!(20260908)
     m, n = 9, 4
@@ -1555,6 +1558,7 @@ end
 
 @testitem "QR row insertion grows the row capacity" begin
     using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity
 
     Random.seed!(20260908)
     m, n = 8, 4
