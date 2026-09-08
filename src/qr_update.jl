@@ -35,12 +35,14 @@ function delete_column!(F::UpdatableQR{T, S, <:DenseQ}, j::Integer) where {T, S}
     for c in j:(n - 1), r in 1:n
         R[r, c] = R[r, c + 1]
     end
-    for r in 1:n
-        R[r, n] = zero(T)
-    end
     n == 1 || _retriangularize!(view(R, 1:n, 1:(n - 1)), q)
     _dropcolumn!(q)
     F.n = n - 1
+    # Re-establish zero storage outside the new active block, mirroring what `_dropcolumn!`
+    # does for Q: nothing above assumes the vacated column or the trailing region was already
+    # zero.
+    fill!(view(R, (F.n + 1):size(R, 1), :), zero(T))
+    fill!(view(R, :, (F.n + 1):size(R, 2)), zero(T))
     return F
 end
 

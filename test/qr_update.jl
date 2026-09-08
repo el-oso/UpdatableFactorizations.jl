@@ -8,6 +8,13 @@
         @test norm(A' * A - I) > 1
         for j in 1:n
             F = UpdatableQR(A)
+            # Poison storage outside the active block before deleting: `delete_column!` must
+            # re-establish the zero invariant itself, not rely on it already holding.
+            Qbefore = getfield(F, :qrep)
+            Rbefore = getfield(F, :factors)
+            fill!(view(Rbefore, (F.n + 1):size(Rbefore, 1), :), T(77))
+            fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), T(77))
+            fill!(view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)), T(88))
             delete_column!(F, j)
             keep = setdiff(1:n, j)
             @test size(F) == (m, n - 1)
