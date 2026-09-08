@@ -93,7 +93,6 @@ function shift_columns!(F::UpdatableQR{T, S, <:DenseQ}, i::Integer, j::Integer) 
     return F
 end
 
-function insert_row! end
 function delete_row! end
 
 # Project `r` onto the columns of `Qa`, leaving the coefficients in `w` and the residual in `r`,
@@ -313,5 +312,51 @@ function insert_column!(
     fill!(view(R, (F.n + 1):size(R, 1), :), zero(T))
     fill!(view(R, :, (F.n + 1):size(R, 2)), zero(T))
     fill!(view(q.buf, :, (F.n + 1):size(q.buf, 2)), zero(T))
+    return F
+end
+
+"""
+    insert_row!(F::UpdatableQR, i, x) -> F
+
+Insert `x` as row `i` of the factored matrix, in `O(mn + n^2)` operations. `x` is the new row,
+not its adjoint, and is not modified.
+
+A zero row opened in `Q` at position `i`, with the unit vector `e_i` as an extra column, extends
+the factorization to the taller matrix; `n` rotations then return the appended row of `R` to
+zero and the extra column of `Q` is dropped.
+
+This is the verb that grows the row capacity, which re-strides every column of the stored
+factor. A caller that inserts rows in a loop should pre-size with `capacity`.
+
+Golub and Van Loan, *Matrix Computations*, 4th edition, section 6.5.
+"""
+function insert_row!(
+        F::UpdatableQR{T, S, <:DenseQ}, i::Integer, x::AbstractVector
+    ) where {T, S}
+    m, n = F.m, F.n
+    1 <= i <= m + 1 || throw(BoundsError(F, i))
+    length(x) == n ||
+        throw(DimensionMismatch("x has length $(length(x)), factorization is $(m)x$(n)"))
+    # Grow before taking any view: growth rebinds both buffers.
+    _grow!(F, m + 1, n)
+    q = getfield(F, :qrep)
+    _insertrow!(q, Int(i))
+    R = getfield(F, :factors)
+    RA = view(R, 1:(n + 1), 1:n)
+    ix = firstindex(x) - 1
+    for k in 1:n
+        R[n + 1, k] = x[ix + k]
+    end
+    _spare(q)[i] = one(T)
+    for k in 1:n
+        c, s, rr = givensAlgorithm(R[k, k], R[n + 1, k])
+        G = Givens(k, n + 1, oftype(R[k, k], c), oftype(R[k, k], s))
+        lmul!(G, RA)
+        rmul!(q, G')
+        R[k, k] = rr
+        R[n + 1, k] = zero(T)
+    end
+    _clearspare!(q)
+    F.m = m + 1
     return F
 end

@@ -482,15 +482,17 @@ end
     qb = getfield(F, :qrep).buf
     @test all(iszero, view(qb, :, (F.n + 1):size(qb, 2)))
 
-    # A rejected insertion leaves no residue for the next verb to build on: inserting a good
-    # column right after must succeed exactly as if the rejected attempt had never happened.
-    # Without the clear, this reconstruction and orthogonality both measure 0.46, with nothing
-    # thrown.
-    y = randn(m)
-    Afull = hcat(A[:, 1:1], y, A[:, 2:n])
-    insert_column!(F, 2, y)
+    # A rejected column insertion leaves no residue for a later, unrelated verb to build on:
+    # row insertion touches m, goes through _insertrow!, and does not share the column
+    # machinery above.
+    row = randn(n)
+    Afull = vcat(A[1:2, :], row', A[3:end, :])
+    insert_row!(F, 3, row)
+    @test size(F) == (m + 1, n)
     @test norm(F.Q' * F.Q - I) < 1.0e-12
     @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+    Rr = getfield(F, :factors)
+    @test all(iszero, [Rr[i, j] for j in 1:F.n for i in (j + 1):F.n])
 end
 
 @testitem "QR column insertion rtol widens the dependence test" begin
@@ -579,4 +581,53 @@ end
         bytesdefault = @allocated insert_column!(K, n + 1, x)
         @test iszero(bytesdefault)
     end
+end
+
+@testitem "QR row insertion, every index" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((10, 5), (8, 7), (6, 6), (9, 1), (30, 12))
+        Afull = randn(T, m + 1, n)
+        for i in 1:(m + 1)
+            keep = setdiff(1:(m + 1), i)
+            A = Afull[keep, :]
+            x = Afull[i, :]
+            F = UpdatableQR(A)
+            insert_row!(F, i, x)
+            @test size(F) == (m + 1, n)
+            @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+            @test norm(F.Q' * F.Q - I) < 1.0e-12
+            Q = getfield(F, :qrep)
+            R = getfield(F, :factors)
+            @test all(iszero, [R[i, j] for j in 1:F.n for i in (j + 1):F.n])
+            @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+            @test all(iszero, view(R, (F.n + 1):size(R, 1), 1:n))
+        end
+    end
+end
+
+@testitem "QR row insertion grows the row capacity" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity
+
+    Random.seed!(20260908)
+    m, n = 8, 4
+    Afull = randn(m + 1, n)
+    A = Afull[1:m, :]
+    F = UpdatableQR(A; capacity = (m, n))
+    insert_row!(F, m + 1, Afull[m + 1, :])
+    @test capacity(F) == (2m, n)
+    @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+    @test norm(F.Q' * F.Q - I) < 1.0e-12
+end
+
+@testitem "QR row insertion rejects bad indices and lengths" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    F = UpdatableQR(randn(9, 4))
+    @test_throws BoundsError insert_row!(F, 11, zeros(4))
+    @test_throws BoundsError insert_row!(F, 0, zeros(4))
+    @test_throws "x has length 3, factorization is 9x4" insert_row!(F, 1, zeros(3))
 end
