@@ -482,9 +482,8 @@ end
     qb = getfield(F, :qrep).buf
     @test all(iszero, view(qb, :, (F.n + 1):size(qb, 2)))
 
-    # A rejected column insertion leaves no residue for a later, unrelated verb to build on:
-    # row insertion touches m, goes through _insertrow!, and does not share the column
-    # machinery above.
+    # The throw left the factorization exactly as it was: a later, unrelated verb through a
+    # different code path succeeds normally right after.
     row = randn(n)
     Afull = vcat(A[1:2, :], row', A[3:end, :])
     insert_row!(F, 3, row)
@@ -630,4 +629,60 @@ end
     @test_throws BoundsError insert_row!(F, 11, zeros(4))
     @test_throws BoundsError insert_row!(F, 0, zeros(4))
     @test_throws "x has length 3, factorization is 9x4" insert_row!(F, 1, zeros(3))
+end
+
+@testitem "QR row insertion is unaffected by residue in the shared augmentation column" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: _spare
+
+    Random.seed!(20260908)
+    m, n = 8, 4
+    i = 3
+    Afull = randn(m + 1, n)
+    A = Afull[setdiff(1:(m + 1), i), :]
+    x = Afull[i, :]
+    F = UpdatableQR(A)
+    q = getfield(F, :qrep)
+    # Poison the column this call builds its unit vector in, with a value distinctive enough
+    # that leftover contamination rather than a coincidental zero would show up in the result.
+    fill!(_spare(q), 12345.0)
+    @test any(!iszero, _spare(q))
+    insert_row!(F, i, x)
+    @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+    @test norm(F.Q' * F.Q - I) < 1.0e-12
+    R = getfield(F, :factors)
+    @test all(iszero, [R[a, b] for b in 1:F.n for a in (b + 1):F.n])
+end
+
+@testitem "QR row insertion re-zeroes poisoned spare storage" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    m, n = 8, 4
+    for cap in ((m, 2n), (2m, 2n))   # growing, then non-growing
+        i = 3
+        Afull = randn(m + 1, n)
+        A = Afull[setdiff(1:(m + 1), i), :]
+        x = Afull[i, :]
+        F = UpdatableQR(A; capacity = cap)
+        # Poison storage beyond what this call reads and writes: row `n + 1` of R at columns
+        # `1:n` is live working space here, not dead space the call is responsible for
+        # clearing, so it is left alone.
+        Rbefore = getfield(F, :factors)
+        Qbefore = getfield(F, :qrep)
+        fill!(view(Rbefore, (F.n + 2):size(Rbefore, 1), :), 77.0)
+        fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), 77.0)
+        fill!(view(Qbefore.buf, :, (F.n + 2):size(Qbefore.buf, 2)), 88.0)
+        @test any(!iszero, view(Rbefore, (F.n + 2):size(Rbefore, 1), :))
+        @test any(!iszero, view(Rbefore, :, (F.n + 1):size(Rbefore, 2)))
+        @test any(!iszero, view(Qbefore.buf, :, (F.n + 2):size(Qbefore.buf, 2)))
+        insert_row!(F, i, x)
+        R = getfield(F, :factors)
+        Q = getfield(F, :qrep)
+        @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
+        @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
+        @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+        @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+        @test norm(F.Q' * F.Q - I) < 1.0e-12
+    end
 end

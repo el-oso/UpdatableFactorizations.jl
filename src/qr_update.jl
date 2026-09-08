@@ -356,7 +356,12 @@ function insert_row!(
         R[k, k] = rr
         R[n + 1, k] = zero(T)
     end
-    _clearspare!(q)
     F.m = m + 1
+    # Re-establish zero storage outside the active block: `n` does not change here, so
+    # nothing above assumes Q's trailing columns or R's spare row and column were already
+    # zero.
+    fill!(view(R, (n + 1):size(R, 1), :), zero(T))
+    fill!(view(R, :, (n + 1):size(R, 2)), zero(T))
+    fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
     return F
 end
