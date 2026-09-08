@@ -162,9 +162,8 @@ for every column: it is `1` when column `j` carries no contribution from the col
 and it collapses toward `0` as `u*v'` drives column `j` into their span. `ArgumentError` is
 thrown, naming the column, when this ratio is at or below `rtol`: a column driven into the span
 of the others leaves the factorization exact but its diagonal entry at the level of rounding
-noise, so a later solve through it divides by that noise. `rtol = 0` skips the check entirely,
-admitting any update including an exactly singular one, matching a plain re-triangularization
-with no rank check and costing nothing beyond it.
+noise, so a later solve through it divides by that noise. `rtol = 0` disables this check,
+admitting any update including an exactly singular one.
 
 When `rtol` is nonzero, the candidate `R` is computed in `F`'s own scratch storage, and the
 check runs against it, before `Q` or the stored factor are touched; a thrown update therefore
@@ -240,5 +239,79 @@ function LinearAlgebra.lowrankupdate!(
     fill!(view(Rfull, (n + 1):size(Rfull, 1), :), zero(T))
     fill!(view(Rfull, :, (n + 1):size(Rfull, 2)), zero(T))
     fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
+    return F
+end
+
+"""
+    insert_column!(F::UpdatableQR, j, x; rtol = sqrt(eps(real(T)))) -> F
+
+Insert `x` as column `j` of the factored matrix, in `O(mn + n|n + 1 - j|)` operations. `x` is
+not modified.
+
+The part of `x` orthogonal to the existing columns becomes the new column of `Q`, and its norm
+`rho` becomes the new diagonal entry of `R`. `ArgumentError` is thrown when `rho` falls at or
+below `rtol * norm(x)`: `rho` scales with `x`, so the threshold is relative, and the ratio it
+tests lies in `[0, 1]`. A column that lies in the range of the existing ones leaves the
+factorization exact but its last diagonal entry at the level of rounding noise, so a solve
+through it divides by noise. `rtol = 0` admits every column whose residual is nonzero, which an
+exactly dependent column is: measured, an exact copy of an existing column leaves `rho` at
+1.95e-16 rather than at zero.
+
+`DimensionMismatch` is thrown when the factorization is square, because the type admits only
+`m >= n`.
+
+Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the
+Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795.
+"""
+function insert_column!(
+        F::UpdatableQR{T, S, <:DenseQ}, j::Integer, x::AbstractVector;
+        rtol::Real = sqrt(eps(real(T)))
+    ) where {T, S}
+    m, n = F.m, F.n
+    1 <= j <= n + 1 || throw(BoundsError(F, j))
+    length(x) == m ||
+        throw(DimensionMismatch("x has length $(length(x)), factorization is $(m)x$(n)"))
+    m > n || throw(
+        DimensionMismatch(
+            "inserting a column would leave a $(m)x$(n + 1) factorization; " *
+                "the factorization requires m >= n"
+        )
+    )
+    q = getfield(F, :qrep)
+    Qa = _active(q)
+    r = _spare(q)
+    w = view(F.work, 1:n)
+    corr = view(F.corr, 1:n)
+    ix = firstindex(x) - 1
+    for i in 1:m
+        r[i] = x[ix + i]
+    end
+    xnrm = norm(r)
+    rho = _project!(w, r, Qa, corr)
+    if !(rho > rtol * xnrm)
+        # The projection built the candidate direction in the augmentation column. Clearing it
+        # is what leaves the factorization as it was, and the next verb builds there.
+        _clearspare!(q)
+        throw(ArgumentError("column $j lies in the range of the existing columns: rho = $rho"))
+    end
+    r ./= rho
+    # Growth comes after the guard, so a rejected insertion does not change the capacity.
+    # `_grow!` carries the augmentation column into the new buffer, so the direction built
+    # through `r` survives; the view itself does not, and nothing below reads it. `w` stays
+    # valid because `_grow!` resizes `F.work` rather than rebinding it.
+    _grow!(F, m, n + 1)
+    R = getfield(F, :factors)
+    for k in 1:n
+        R[k, n + 1] = w[k]
+    end
+    R[n + 1, n + 1] = rho
+    F.n = n + 1
+    q.n = n + 1
+    j != n + 1 && return shift_columns!(F, n + 1, Int(j))
+    # `shift_columns!` re-establishes the zero invariant beyond the (new) active block on the
+    # path above; appending at the end takes no such call, so it must do so itself here.
+    fill!(view(R, (F.n + 1):size(R, 1), :), zero(T))
+    fill!(view(R, :, (F.n + 1):size(R, 2)), zero(T))
+    fill!(view(q.buf, :, (F.n + 1):size(q.buf, 2)), zero(T))
     return F
 end

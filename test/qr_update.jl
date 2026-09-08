@@ -424,3 +424,159 @@ end
         @test iszero(bytesdefault)
     end
 end
+
+@testitem "QR column insertion, every index" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((10, 5), (8, 7), (20, 7), (30, 12))
+        Afull = randn(T, m, n + 1)
+        for j in 1:(n + 1)
+            keep = setdiff(1:(n + 1), j)
+            A = Afull[:, keep]
+            x = Afull[:, j]
+            F = UpdatableQR(A)
+            insert_column!(F, j, x)
+            @test size(F) == (m, n + 1)
+            @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+            @test norm(F.Q' * F.Q - I) < 1.0e-12
+            R = getfield(F, :factors)
+            @test all(iszero, [R[i, j] for j in 1:F.n for i in (j + 1):F.n])
+            @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
+        end
+    end
+end
+
+@testitem "QR column insertion grows past its capacity" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity
+
+    Random.seed!(20260908)
+    m, n = 10, 4
+    Afull = randn(m, n + 1)
+    A = Afull[:, 1:n]
+    F = UpdatableQR(A; capacity = (m, n))
+    @test capacity(F) == (m, n)
+    insert_column!(F, n + 1, Afull[:, n + 1])
+    @test capacity(F) == (m, 2n)
+    @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+    @test norm(F.Q' * F.Q - I) < 1.0e-12
+end
+
+@testitem "QR column insertion rejects a dependent column" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity
+
+    Random.seed!(20260908)
+    m, n = 9, 4
+    A = randn(m, n)
+    # A tight capacity puts the growth this verb would perform under the same assertion as the
+    # rest of its state: a rejected insertion leaves the capacity where it was.
+    F = UpdatableQR(A; capacity = (m, n))
+    # An exact copy of an existing column leaves a residual of 1.95e-16, which is strictly
+    # positive: it is the relative test against `norm(x)` that rejects it, not `rho > 0`.
+    @test_throws "lies in the range of the existing columns" insert_column!(F, 2, A[:, 1])
+    @test size(F) == (m, n)               # the throw left the factorization as it was
+    @test capacity(F) == (m, n)
+    @test norm(F.Q * F.R - A) / norm(A) < 1.0e-12
+    qb = getfield(F, :qrep).buf
+    @test all(iszero, view(qb, :, (F.n + 1):size(qb, 2)))
+
+    # A rejected insertion leaves no residue for the next verb to build on: inserting a good
+    # column right after must succeed exactly as if the rejected attempt had never happened.
+    # Without the clear, this reconstruction and orthogonality both measure 0.46, with nothing
+    # thrown.
+    y = randn(m)
+    Afull = hcat(A[:, 1:1], y, A[:, 2:n])
+    insert_column!(F, 2, y)
+    @test norm(F.Q' * F.Q - I) < 1.0e-12
+    @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+end
+
+@testitem "QR column insertion rtol widens the dependence test" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    m, n = 9, 4
+    A = randn(m, n)
+    x = A[:, 1] + 1.0e-6 .* randn(m)
+    F = UpdatableQR(A)
+    insert_column!(F, n + 1, x)
+    @test size(F) == (m, n + 1)
+    # The default admits the column, whose residual ratio is 5.9e-7, and leaves a measurably
+    # collapsed diagonal entry.
+    @test abs(F.R[n + 1, n + 1]) < 1.0e-4
+
+    G = UpdatableQR(A)
+    @test_throws "lies in the range of the existing columns" insert_column!(
+        G, n + 1, x; rtol = 1.0e-4
+    )
+end
+
+@testitem "QR column insertion rejects bad indices and a square factorization" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    F = UpdatableQR(randn(9, 4))
+    @test_throws BoundsError insert_column!(F, 6, zeros(9))
+    @test_throws BoundsError insert_column!(F, 0, zeros(9))
+    @test_throws "x has length 8, factorization is 9x4" insert_column!(F, 1, zeros(8))
+    G = UpdatableQR(randn(4, 4))
+    @test_throws "the factorization requires m >= n" insert_column!(G, 1, zeros(4))
+end
+
+@testitem "QR column insertion re-zeroes poisoned spare storage" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    m, n = 9, 4
+    for j in (n + 1, 2)   # append, and a position that requires a shift
+        A = randn(m, n)
+        x = randn(m)
+        Afull = j == n + 1 ? hcat(A, x) : hcat(A[:, 1:1], x, A[:, 2:n])
+        F = UpdatableQR(A; capacity = (m, 2n))
+        # Poison storage outside the active block before inserting: `insert_column!` must
+        # re-establish the zero invariant itself, not rely on it already holding. Row and column
+        # `F.n + 1` are left alone: that is the augmentation slot the algorithm both reads as a
+        # precondition and writes as its result, not dead space it is responsible for clearing.
+        Rbefore = getfield(F, :factors)
+        Qbefore = getfield(F, :qrep)
+        fill!(view(Rbefore, (F.n + 2):size(Rbefore, 1), :), 77.0)
+        fill!(view(Rbefore, :, (F.n + 2):size(Rbefore, 2)), 77.0)
+        fill!(view(Qbefore.buf, :, (F.n + 2):size(Qbefore.buf, 2)), 88.0)
+        @test any(!iszero, view(Rbefore, (F.n + 2):size(Rbefore, 1), :))
+        @test any(!iszero, view(Rbefore, :, (F.n + 2):size(Rbefore, 2)))
+        @test any(!iszero, view(Qbefore.buf, :, (F.n + 2):size(Qbefore.buf, 2)))
+        insert_column!(F, j, x)
+        R = getfield(F, :factors)
+        Q = getfield(F, :qrep)
+        @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
+        @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
+        @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+        @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
+        @test norm(F.Q' * F.Q - I) < 1.0e-12
+    end
+end
+
+@testitem "QR column insertion allocates nothing when it does not grow, independent of m" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    n = 30
+    for m in (35, 2000)
+        A = randn(m, n)
+        x = randn(m)
+
+        F = UpdatableQR(A)
+        insert_column!(F, n + 1, x; rtol = 0.0)   # warm: compile before measuring
+        G = UpdatableQR(A)
+        bytes0 = @allocated insert_column!(G, n + 1, x; rtol = 0.0)
+        @test iszero(bytes0)
+
+        H = UpdatableQR(A)
+        insert_column!(H, n + 1, x)               # warm the default-rtol path separately
+        K = UpdatableQR(A)
+        bytesdefault = @allocated insert_column!(K, n + 1, x)
+        @test iszero(bytesdefault)
+    end
+end
