@@ -64,7 +64,8 @@ capacity(q::DenseQ) = (size(q.buf, 1), size(q.buf, 2) - 1)
 LinearAlgebra.lmul!(G::Givens, q::DenseQ) = (lmul!(G, _augmented(q)); q)
 LinearAlgebra.rmul!(q::DenseQ, G::Givens) = (rmul!(_augmented(q), G); q)
 
-# Structural changes. Each leaves storage outside the active block zero.
+# Structural changes. Each re-establishes zero storage outside the active block itself,
+# rather than assuming the caller already left it that way.
 function _insertrow!(q::DenseQ{T}, i::Integer) where {T}
     for j in 1:q.n, r in q.m:-1:i
         q.buf[r+1, j] = q.buf[r, j]
@@ -73,6 +74,7 @@ function _insertrow!(q::DenseQ{T}, i::Integer) where {T}
         q.buf[i, j] = zero(T)
     end
     q.m += 1
+    fill!(view(q.buf, :, q.n + 1), zero(T))
     return q
 end
 
@@ -90,7 +92,11 @@ function _deleterow!(q::DenseQ{T}, i::Integer) where {T}
     return q
 end
 
-_dropcolumn!(q::DenseQ{T}) where {T} = (fill!(view(q.buf, 1:q.m, q.n), zero(T)); q.n -= 1; q)
+function _dropcolumn!(q::DenseQ{T}) where {T}
+    q.n -= 1
+    fill!(view(q.buf, :, (q.n+1):size(q.buf, 2)), zero(T))
+    return q
+end
 
 _clearspare!(q::DenseQ{T}) where {T} = (fill!(_spare(q), zero(T)); q)
 

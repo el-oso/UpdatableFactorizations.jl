@@ -7,7 +7,7 @@ end
 
 @testitem "DenseQ presents its active block and keeps the rest zero" begin
     using LinearAlgebra, Random
-    using UpdatableFactorizations: DenseQ, materialize, _active, _spare
+    using UpdatableFactorizations: DenseQ, materialize, _active, _spare, capacity
 
     Random.seed!(20260908)
     m, n = 6, 3
@@ -24,6 +24,7 @@ end
     @test Matrix(q) == A
     @test materialize(q) === q
     @test all(iszero, _spare(q))
+    @test capacity(q) == (6, 4)
 end
 
 @testitem "DenseQ applies rotations to the augmented factor" begin
@@ -63,7 +64,9 @@ end
 
     Random.seed!(20260908)
     m, n = 5, 3
-    buf = zeros(8, n + 1)
+    # Every entry starts nonzero, including the region a mutator must clear itself: nothing
+    # here should incidentally start at zero and mask a mutator that never wrote to it.
+    buf = fill(99.0, m + 1, n + 1)
     B = randn(m, n)
     copyto!(view(buf, 1:m, 1:n), B)
     q = DenseQ{Float64,Matrix{Float64}}(buf, m, n)
@@ -72,14 +75,16 @@ end
     @test size(q) == (m + 1, n)
     @test view(q.buf, 2, 1:n) == zeros(n)
     @test view(q.buf, 3:(m+1), 1:n) == B[2:m, :]
+    @test all(iszero, view(q.buf, :, n + 1))
 
     _deleterow!(q, 2)
     @test size(q) == (m, n)
     @test view(q.buf, 1:m, 1:n) == B
-    @test all(iszero, view(q.buf, (m+1):8, :))
+    @test all(iszero, view(q.buf, (m+1):(m+1), :))
     @test all(iszero, _spare(q))
 
+    fill!(view(q.buf, :, n + 1), 99.0) # poison the augmentation column again before dropping a column
     _dropcolumn!(q)
     @test size(q) == (m, n - 1)
-    @test all(iszero, view(q.buf, 1:m, n:(n+1)))
+    @test all(iszero, view(q.buf, :, n:(n+1)))
 end
