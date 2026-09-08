@@ -1,7 +1,7 @@
 module UpdatableFactorizations
 
 using LinearAlgebra
-using LinearAlgebra: givensAlgorithm, Givens, PosDefException, ZeroPivotException
+using LinearAlgebra: givensAlgorithm, Givens, PosDefException, ZeroPivotException, QRCompactWY
 import LinearAlgebra: lowrankupdate!, lowrankdowndate!, ldiv!, logdet, det
 using TypeContracts
 
