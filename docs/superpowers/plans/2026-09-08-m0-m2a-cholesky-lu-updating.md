@@ -143,7 +143,10 @@ git commit -m "Add package skeleton"
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `UpdatableCholesky{T,S}` with fields `factors::S`, `n::Int`, `uplo::Char`, `work::Vector{T}`; `_lower(F)`; `UpdatableCholesky(::Cholesky)`; `UpdatableCholesky(A::AbstractMatrix; uplo, capacity)`; `size`, `Matrix`, `ldiv!`, `\`, `logdet`, `det`
+- Produces: `UpdatableCholesky{T,R,S}` with fields `factors::S`, `n::Int`, `uplo::Char`, `work::Vector{T}`, `cosines::Vector{R}`, `rot::Vector{T}`; `_lower(F)`; `UpdatableCholesky(::Cholesky)`; `UpdatableCholesky(A::AbstractMatrix; uplo, capacity)`; `size`, `Matrix`, `ldiv!`, `\`, `logdet`, `det`
+
+`cosines` and `rot` are the downdate's rotation buffers. They are declared here so the struct is
+defined once; Task 4 fills them and Task 10 asserts the downdate allocates nothing.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -201,15 +204,18 @@ Cholesky factorization that supports rank-1 update and downdate and symmetric in
 deletion and shifting of indices. `capacity` is the largest size the factorization can reach
 before its storage is reallocated.
 """
-mutable struct UpdatableCholesky{T, S <: AbstractMatrix{T}} <: Factorization{T}
+mutable struct UpdatableCholesky{T, R <: Real, S <: AbstractMatrix{T}} <: Factorization{T}
     factors::S
     n::Int
     uplo::Char
-    work::Vector{T}
+    work::Vector{T}      # the update vector, consumed in place
+    cosines::Vector{R}   # downdate rotation cosines
+    rot::Vector{T}       # downdate rotation sines
 end
 
 function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1)) where {T}
     n = size(C, 1)
+    R = real(T)
     capacity >= n || throw(ArgumentError("capacity $capacity is below the size $n"))
     f = zeros(T, capacity, capacity)
     # Cholesky.factors only guarantees the stored triangle; LAPACK leaves the factored matrix in
@@ -224,7 +230,9 @@ function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1)) where {T
             f[i, j] = C.factors[i, j]
         end
     end
-    return UpdatableCholesky{T, Matrix{T}}(f, n, C.uplo, zeros(T, capacity))
+    return UpdatableCholesky{T, R, Matrix{T}}(
+        f, n, C.uplo, zeros(T, capacity), zeros(R, capacity), zeros(T, capacity)
+    )
 end
 
 UpdatableCholesky(A::AbstractMatrix; uplo::Symbol = :L, capacity::Int = 2size(A, 1)) =
@@ -433,12 +441,13 @@ function LinearAlgebra.lowrankdowndate!(F::UpdatableCholesky, v::AbstractVector)
         throw(DimensionMismatch("v has length $(length(v)), factorization is $(F.n)"))
     w = view(F.work, 1:F.n)
     copyto!(w, v)
-    _ch1dn!(_lower(F), w)
+    _ch1dn!(_lower(F), w, view(F.cosines, 1:F.n), view(F.rot, 1:F.n))
     return F
 end
 
-# `w` is consumed, first as the right-hand side of L p = w and then as p itself.
-function _ch1dn!(L, w)
+# `w` is consumed, first as the right-hand side of L p = w and then as p itself. `cs` and `sn`
+# are scratch of length n; taking them from the caller keeps this allocation-free.
+function _ch1dn!(L, w, cs, sn)
     n = size(L, 1)
     T = eltype(L)
     R = real(T)
@@ -453,8 +462,6 @@ function _ch1dn!(L, w)
     alpha = one(R) - sum(abs2, p)
     alpha > 0 || throw(PosDefException(n))
     a = sqrt(alpha)
-    cs = Vector{R}(undef, n)
-    sn = Vector{T}(undef, n)
     for i in n:-1:1
         r = hypot(a, abs(p[i]))
         cs[i] = a / r
@@ -636,6 +643,8 @@ function _grow!(F::UpdatableCholesky{T}, needed::Int) where {T}
     copyto!(view(f, 1:F.n, 1:F.n), view(F.factors, 1:F.n, 1:F.n))
     F.factors = f
     resize!(F.work, newcap)
+    resize!(F.cosines, newcap)
+    resize!(F.rot, newcap)
     return F
 end
 
@@ -901,7 +910,8 @@ function UpdatableLU(G::LU{T}) where {T}
             Uf[k, j] = U[k, j] / d[k]
         end
     end
-    return UpdatableLU{T, Matrix{T}}(Lf, d, Uf, collect(G.p), G.p != 1:n, zeros(T, n))
+    # `work` holds both of the rank-1 update's consumed vectors, so the update allocates nothing.
+    return UpdatableLU{T, Matrix{T}}(Lf, d, Uf, collect(G.p), G.p != 1:n, zeros(T, 2n))
 end
 
 UpdatableLU(A::AbstractMatrix; pivot = RowMaximum()) = UpdatableLU(lu(A, pivot))
@@ -1032,16 +1042,19 @@ function LinearAlgebra.lowrankupdate!(F::UpdatableLU{T}, u::AbstractVector,
     length(u) == n || throw(DimensionMismatch("u has length $(length(u)), factorization is $n"))
     length(v) == n || throw(DimensionMismatch("v has length $(length(v)), factorization is $n"))
     p = getfield(F, :p)
-    w = Vector{T}(undef, n)
+    work = getfield(F, :work)
+    w = view(work, 1:n)
+    z = view(work, (n + 1):2n)
+    iu = firstindex(u) - 1
+    iv = firstindex(v) - 1
     for i in 1:n
-        w[i] = u[p[i]]
+        w[i] = u[iu + p[i]]
     end
     # `_bennett!` works in the transpose form, so A + u*v' is passed as second vector conj(v).
-    # `conj(v)` alone would alias for real `v` -- Base defines conj(::AbstractArray{<:Real}) = v
-    # -- and the kernel consumes what it is given.
-    z = Vector{T}(undef, n)
+    # Copy elementwise: `conj(v)` returns `v` itself for real `v` -- Base defines
+    # conj(::AbstractArray{<:Real}) = v -- and the kernel consumes what it is given.
     for i in 1:n
-        z[i] = conj(v[i])
+        z[i] = conj(v[iv + i])
     end
     _bennett!(getfield(F, :Lf), getfield(F, :d), getfield(F, :Uf), w, z, one(T))
     return F
@@ -1125,15 +1138,19 @@ end
 end
 
 @testitem "factorization invariants hold after every operation" begin
-    using LinearAlgebra, TypeContracts
+    using LinearAlgebra, Test, TypeContracts
     n = 7
     B = randn(n, n)
     A = Matrix(Symmetric(B * B' + n * I))
     F = UpdatableCholesky(cholesky(Symmetric(A, :L)))
     lowrankupdate!(F, randn(n))
-    @test check_invariants(F)
     delete_column!(F, 3)
-    @test check_invariants(F)
+    insert_column!(F, 2, randn(n))
+    @test behavior_passes(UpdatableCholesky, [F])
+
+    G = UpdatableLU(lu(randn(n, n) + n * I))
+    lowrankupdate!(G, randn(n), randn(n))
+    @test behavior_passes(UpdatableLU, [G])
 end
 ```
 
@@ -1144,45 +1161,37 @@ Expected: FAIL — `check_invariants` not defined for these types; `@test_noallo
 
 - [ ] **Step 3: Write the implementation**
 
-Two changes.
-
-First, `src/contracts.jl`:
+`src/contracts.jl`. `@invariants` takes `"description" => predicate` pairs, and the predicate
+receives an instance. It is asserted with `behavior_passes(T, objects)`, not by any
+`check_invariants` function.
 
 ```julia
 using TypeContracts
 
 @invariants UpdatableCholesky begin
-    F.n >= 0
-    F.n <= size(F.factors, 1)
-    F.uplo == 'L' || F.uplo == 'U'
-    length(F.work) >= F.n
+    "size is within capacity" => F -> 0 <= F.n <= size(F.factors, 1)
+    "uplo is L or U" => F -> F.uplo == 'L' || F.uplo == 'U'
+    "workspaces cover the active block" =>
+        F -> length(F.work) >= F.n && length(F.cosines) >= F.n && length(F.rot) >= F.n
+    "the stored factor has a positive diagonal" =>
+        F -> all(i -> real(F.factors[i, i]) > 0, 1:F.n)
 end
 
 @invariants UpdatableLU begin
-    length(F.d) == size(F.Lf, 1)
-    length(F.p) == length(F.d)
-    sort(F.p) == 1:length(F.p)
+    "factors agree in size" =>
+        F -> length(getfield(F, :d)) == size(getfield(F, :Lf), 1) == size(getfield(F, :Uf), 1)
+    "p is a permutation" => F -> sort(getfield(F, :p)) == 1:length(getfield(F, :d))
+    "workspace holds both update vectors" =>
+        F -> length(getfield(F, :work)) >= 2length(getfield(F, :d))
 end
 ```
 
-Second, make `_ch1dn!` allocation-free by taking its two rotation buffers from the
-factorization's workspace. Change `UpdatableCholesky` to carry `rot::Vector{T}` and
-`cosines::Vector{real(T)}` alongside `work`, sized to `capacity`, and change `_ch1dn!` to accept
-them:
+The `UpdatableLU` predicates use `getfield` because Task 8 overrides `getproperty` for `:L` and
+`:U`, and `F.d` would otherwise go through it.
 
-```julia
-function LinearAlgebra.lowrankdowndate!(F::UpdatableCholesky, v::AbstractVector)
-    length(v) == F.n ||
-        throw(DimensionMismatch("v has length $(length(v)), factorization is $(F.n)"))
-    w = view(F.work, 1:F.n)
-    copyto!(w, v)
-    _ch1dn!(_lower(F), w, view(F.cosines, 1:F.n), view(F.rot, 1:F.n))
-    return F
-end
-```
-
-with `_ch1dn!(L, w, cs, sn)` using the passed buffers instead of allocating them. Update
-`_grow!` to resize all three buffers.
+The rotation buffers `_ch1dn!` needs already exist on the type from Task 2 and are already
+passed in by Task 4, so no signature change is needed here. If `@test_noalloc` reports
+allocations, that is a real defect to find, not a signature to add.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1193,8 +1202,8 @@ changing anything.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/contracts.jl src/cholesky_type.jl src/cholesky_update.jl test/strict.jl
-git commit -m "Add invariants and allocation-free rank-1 kernels"
+git add src/contracts.jl test/strict.jl
+git commit -m "Add factorization invariants and allocation gates"
 ```
 
 ---
