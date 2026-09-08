@@ -1,9 +1,17 @@
 """
-    lowrankupdate!(F::UpdatableLU, u, v) -> F
+    lowrankupdate!(F::UpdatableLU, u, v; rtol = 0) -> F
 
 Replace the factorization of `A` with that of `A + u*v'` in `O(n^2)` operations. Neither `u` nor
 `v` is modified. The permutation is retained rather than recomputed, so a pivot that becomes
-small is not repaired; `ZeroPivotException` is thrown if one reaches zero.
+small is not repaired.
+
+`ZeroPivotException` is thrown when a pivot reaches zero, and, when `rtol > 0`, also when a
+pivot falls below `rtol` times the magnitude of the two terms that formed it. The error in the
+updated factors grows like `|d_k| / |d'_k|`, the ratio of a pivot before and after the update,
+so a loop of updates should set `rtol` rather than rely on the zero test alone.
+
+A throw leaves the factorization invalid; `issuccess(F)` is `false` afterwards and `F` must be
+rebuilt.
 
 Bennett, *Triangular factors of modified matrices*, Numerische Mathematik 7 (1965), 217-221.
 The pivoted case follows Stange, Griewank and Bollhöfer, *On the efficient update of rectangular
@@ -12,8 +20,9 @@ update in the permuted frame.
 """
 function LinearAlgebra.lowrankupdate!(
         F::UpdatableLU{T}, u::AbstractVector,
-        v::AbstractVector
+        v::AbstractVector; rtol::Real = 0
     ) where {T}
+    _checkvalid(F)
     n = length(getfield(F, :d))
     length(u) == n || throw(DimensionMismatch("u has length $(length(u)), factorization is $n"))
     length(v) == n || throw(DimensionMismatch("v has length $(length(v)), factorization is $n"))
@@ -32,19 +41,25 @@ function LinearAlgebra.lowrankupdate!(
     for i in 1:n
         z[i] = conj(v[iv + i])
     end
-    _bennett!(getfield(F, :Lf), getfield(F, :d), getfield(F, :Uf), w, z, one(T))
+    k = _bennett!(getfield(F, :Lf), getfield(F, :d), getfield(F, :Uf), w, z, one(T), rtol)
+    if !iszero(k)
+        setfield!(F, :info, k)
+        throw(ZeroPivotException(k))
+    end
     return F
 end
 
-# A + sigma*w*transpose(z), on the LDU form. `w` and `z` are consumed.
-function _bennett!(L, d, U, w, z, sigma)
+# A + sigma*w*transpose(z), on the LDU form. `w` and `z` are consumed. Returns zero, or the
+# column at which the pivot became too small to continue, leaving the factors partly overwritten.
+function _bennett!(L, d, U, w, z, sigma, rtol)
     n = length(d)
     s = sigma
     for k in 1:n
         wk = w[k]
         zk = z[k]
-        dnew = d[k] + s * wk * zk
-        iszero(dnew) && throw(ZeroPivotException(k))
+        term = s * wk * zk
+        dnew = d[k] + term
+        (iszero(dnew) || abs(dnew) < rtol * (abs(d[k]) + abs(term))) && return k
         alpha = s * zk / dnew
         beta = s * wk / dnew
         for i in (k + 1):n
@@ -58,5 +73,5 @@ function _bennett!(L, d, U, w, z, sigma)
         s = s * d[k] / dnew
         d[k] = dnew
     end
-    return L, d, U
+    return 0
 end
