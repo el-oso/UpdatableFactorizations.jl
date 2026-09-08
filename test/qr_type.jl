@@ -12,8 +12,7 @@
         @test norm(F.Q * F.R - A) / norm(A) < 1.0e-13
         @test norm(F.Q' * F.Q - I) < 1.0e-13
         # `F.R` wraps the stored block in `UpperTriangular`, which reports a zero subdiagonal
-        # whatever the block holds, so triangularity is asserted on the block itself. Every
-        # other item in this milestone does the same, for the same reason.
+        # whatever the block holds, so triangularity is asserted on the block itself.
         Rs = getfield(F, :factors)
         @test all(iszero, [Rs[i, j] for j in 1:F.n for i in (j + 1):F.n])
         @test issuccess(F)
@@ -52,6 +51,9 @@ end
     Q = F.Q
     Q[1, 1] += 1.0
     @test F.Q[1, 1] == Q[1, 1]        # a view of live storage, not a copy
+    R = F.R
+    R[1, 2] += 1.0
+    @test F.R[1, 2] == R[1, 2]        # a view of live storage, not a copy
     @test capacity(F) == (14, 8)
     @test capacity(UpdatableQR(randn(7, 4); capacity = (7, 4))) == (7, 4)
 end
@@ -117,4 +119,52 @@ end
         @test norm(F.Q' * F.Q - I) < 10 * eps(real(T)) * n
     end
     @test capacity(qr_householder(randn(9, 5); capacity = (9, 5))) == (9, 5)
+end
+
+@testitem "_grow! grows storage without losing or leaking data" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity, _grow!
+
+    Random.seed!(20260908)
+    m, n = 6, 3
+    mcap, ncap = m + 2, n + 2   # strictly larger than the size, so there is real dead space
+    #                             between the active block and the buffer edge to poison
+    A = randn(m, n)
+
+    for (mneeded, nneeded, growsn) in ((m + 5, n, false), (m, n + 5, true), (m + 5, n + 5, true))
+        F = UpdatableQR(A; capacity = (mcap, ncap))
+        q = getfield(F, :qrep)
+        oldqbuf = q.buf
+        Rbefore = getfield(F, :factors)
+        # Poison the dead space beyond the active block and its single augmentation
+        # column/row: a correct `_grow!` never reads from there, so if a broken copy read
+        # too wide, this leaks into the regrown buffer instead of its fresh zero fill.
+        fill!(view(oldqbuf, (m + 1):mcap, :), 99.0)
+        fill!(view(oldqbuf, :, (n + 2):(ncap + 1)), 99.0)
+        fill!(view(Rbefore, (n + 1):(ncap + 1), :), 99.0)
+        fill!(view(Rbefore, :, (n + 1):(ncap + 1)), 99.0)
+
+        _grow!(F, mneeded, nneeded)
+        newmcap, newncap = capacity(F)
+        @test newmcap >= mneeded && newncap >= nneeded
+
+        @test norm(F.Q * F.R - A) / norm(A) < 1.0e-13
+        @test norm(F.Q' * F.Q - I) < 1.0e-13
+
+        @test q.buf !== oldqbuf   # Q's buffer reallocates whenever `_grow!` proceeds
+        @test all(iszero, view(q.buf, :, F.n + 1))
+        @test all(iszero, view(q.buf, (F.m + 1):newmcap, :))
+        @test all(iszero, view(q.buf, :, (F.n + 2):(newncap + 1)))
+
+        R = getfield(F, :factors)
+        if growsn
+            @test R !== Rbefore
+            @test all(iszero, view(R, (F.n + 1):(newncap + 1), :))
+            @test all(iszero, view(R, :, (F.n + 1):(newncap + 1)))
+        else
+            # Growing rows alone must not disturb R: same object, poison untouched.
+            @test R === Rbefore
+            @test all(==(99.0), view(R, (n + 1):(ncap + 1), :))
+        end
+    end
 end
