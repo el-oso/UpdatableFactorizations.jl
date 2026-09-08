@@ -289,3 +289,103 @@ end
         @test rho == norm(r)
     end
 end
+
+@testitem "QR rank-1 update rejects a near-cancelling update by default, admits it at rtol = 0" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64)
+        m, n = 10, 5
+        A = randn(T, m, n)
+        F0 = UpdatableQR(A)
+        j = 3
+        Rjj = F0.R[j, j]
+        delta = 1.0e-10
+        # `u` is a scaled copy of `Q`'s own column `j`, so `A + u*v'` keeps every column but `j`
+        # unchanged and leaves column `j`'s diagonal contribution shrunk by `delta`: the same
+        # `Q` still factors the result, with `R[j,j]` scaled to `delta * Rjj`.
+        u = -(1 - delta) * Rjj * F0.Q[:, j]
+        v = zeros(T, n)
+        v[j] = one(T)
+
+        F = UpdatableQR(A)
+        err = try
+            lowrankupdate!(F, u, v)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("column $j", err.msg)
+        @test occursin("rank deficient", err.msg)
+        # The throw left the factorization exactly as it was: it still reconstructs `A`, not
+        # `A + u*v'`, `issuccess` holds, and the scratch storage the guard used is clean.
+        @test norm(F.Q * F.R - A) / norm(A) < 1.0e-12
+        @test issuccess(F)
+        Q = getfield(F, :qrep)
+        R = getfield(F, :factors)
+        @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+        @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
+        @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
+
+        G = UpdatableQR(A)
+        lowrankupdate!(G, u, v; rtol = 0.0)
+        @test norm(G.Q * G.R - (A + u * v')) / norm(A) < 1.0e-8
+        @test norm(G.Q' * G.Q - I) < 1.0e-12
+        Rg = getfield(G, :factors)
+        @test all(iszero, [Rg[i, k] for k in 1:G.n for i in (k + 1):G.n])
+    end
+end
+
+@testitem "QR rank-1 update rejects a near-cancelling update on the out-of-range branch" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64)
+        m, n = 10, 5
+        A = randn(T, m, n)
+        F0 = UpdatableQR(A)
+        j = 3
+        Rjj = F0.R[j, j]
+        delta = 1.0e-10
+        uin = -(1 - delta) * Rjj * F0.Q[:, j]
+        # A genuine out-of-range component of the same tiny magnitude as `delta`: small enough
+        # to still trip the guard, but large enough to take the branch that builds a residual
+        # direction in `Q`'s augmentation column, so the throw's cleanup has real work to undo.
+        e = randn(T, m)
+        e .-= F0.Q * (F0.Q' * e)
+        e ./= norm(e)
+        u = uin + delta .* e
+        v = zeros(T, n)
+        v[j] = one(T)
+
+        F = UpdatableQR(A)
+        err = try
+            lowrankupdate!(F, u, v)
+            nothing
+        catch e2
+            e2
+        end
+        @test err isa ArgumentError
+        @test occursin("rank deficient", err.msg)
+        @test norm(F.Q * F.R - A) / norm(A) < 1.0e-12
+        @test issuccess(F)
+        Q = getfield(F, :qrep)
+        @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+    end
+end
+
+@testitem "QR rank-1 update is unaffected by the default rtol on a generic update" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((10, 5), (6, 6))
+        A = randn(T, m, n)
+        u = randn(T, m)
+        v = randn(T, n)
+        F = UpdatableQR(A)
+        lowrankupdate!(F, u, v)   # default rtol; must not throw
+        @test norm(F.Q * F.R - (A + u * v')) / norm(A) < 1.0e-12
+        @test norm(F.Q' * F.Q - I) < 1.0e-12
+    end
+end

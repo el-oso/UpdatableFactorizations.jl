@@ -118,8 +118,29 @@ function _project_residual!(w, r, Qa, corr)
     return norm(r)
 end
 
+# Chase the spike `z` into `RA` with Givens rotations, add the rank-1 correction to row 1 of
+# `RA`, and retriangularize, mirroring every rotation onto `q`. The sequence of rotations
+# depends only on `z` and `RA`, never on `q`'s entries, so calling this once on a scratch `RA`,
+# `z` and `q` and again on the live ones produces identical numbers in both `RA`s.
+function _absorb_spike!(RA, z, q, v, iv, n, last)
+    T = eltype(z)
+    for k in (last - 1):-1:1
+        c, s, rr = givensAlgorithm(z[k], z[k + 1])
+        G = Givens(k, k + 1, oftype(z[k], c), oftype(z[k], s))
+        z[k] = rr
+        z[k + 1] = zero(T)
+        lmul!(G, RA)
+        rmul!(q, G')
+    end
+    for j in 1:n
+        RA[1, j] += z[1] * conj(v[iv + j])
+    end
+    _retriangularize!(RA, q)
+    return RA
+end
+
 """
-    lowrankupdate!(F::UpdatableQR, u, v) -> F
+    lowrankupdate!(F::UpdatableQR, u, v; rtol = sqrt(eps(real(T)))) -> F
 
 Replace the factorization of `A` with that of `A + u*v'` in `O(mn)` operations. Neither `u` nor
 `v` is modified.
@@ -129,12 +150,26 @@ negligible relative to `u`, or when the factorization is square and so has no ro
 direction, the update is carried out inside the existing range; that is a legitimate case rather
 than a failure, and the routine never throws for it.
 
+Because `Q` is orthonormal, the norm of column `j` of the updated `R` equals the norm of column
+`j` of `A + u*v'` itself, so `abs(R[j,j]) / norm(R[1:j,j])` is a dimensionless ratio in `[0, 1]`
+for every column: it is `1` when column `j` carries no contribution from the columns before it,
+and it collapses toward `0` as `u*v'` drives column `j` into their span. `ArgumentError` is
+thrown, naming the column, when this ratio is at or below `rtol`: a column driven into the span
+of the others leaves the factorization exact but its diagonal entry at the level of rounding
+noise, so a later solve through it divides by that noise. `rtol = 0` admits every update whose
+result is not exactly singular, matching a plain re-triangularization with no rank check.
+
+The candidate `R` is computed on a scratch copy, and the check runs against it, before `Q` or
+the stored factor are touched; a thrown update therefore leaves the factorization exactly as it
+was.
+
 Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the
 Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795.
 Golub and Van Loan, *Matrix Computations*, 4th edition, section 6.5.
 """
 function LinearAlgebra.lowrankupdate!(
-        F::UpdatableQR{T, S, <:DenseQ}, u::AbstractVector, v::AbstractVector
+        F::UpdatableQR{T, S, <:DenseQ}, u::AbstractVector, v::AbstractVector;
+        rtol::Real = sqrt(eps(real(T)))
     ) where {T, S}
     m, n = F.m, F.n
     length(u) == m ||
@@ -163,19 +198,30 @@ function LinearAlgebra.lowrankupdate!(
         z[n + 1] = zero(T)
         last = n
     end
-    for k in (last - 1):-1:1
-        c, s, rr = givensAlgorithm(z[k], z[k + 1])
-        G = Givens(k, k + 1, oftype(z[k], c), oftype(z[k], s))
-        z[k] = rr
-        z[k + 1] = zero(T)
-        lmul!(G, RA)
-        rmul!(q, G')
-    end
     iv = firstindex(v) - 1
+
+    # Determine the outcome on a scratch copy before touching `Q` or the stored factor: `dummy`
+    # is a zero-row `DenseQ` sharing `RA`'s element type, so the rotations `_absorb_spike!`
+    # mirrors onto it are no-ops, and only `RS` records the candidate triangular factor.
+    RS = copy(RA)
+    zs = copy(z)
+    dummybuf = similar(q.buf, 0, n + 1)
+    dummy = DenseQ{T, typeof(dummybuf)}(dummybuf, 0, n)
+    _absorb_spike!(RS, zs, dummy, v, iv, n, last)
     for j in 1:n
-        RA[1, j] += z[1] * conj(v[iv + j])
+        colnorm = norm(view(RS, 1:j, j))
+        abs(RS[j, j]) > rtol * colnorm && continue
+        fill!(r, zero(T))
+        throw(
+            ArgumentError(
+                "column $j of the updated factorization is rank deficient: " *
+                    "abs(R[$j,$j]) = $(abs(RS[j, j])) is at or below " *
+                    "rtol * norm(column $j) = $(rtol * colnorm)"
+            )
+        )
     end
-    _retriangularize!(RA, q)
+
+    _absorb_spike!(RA, z, q, v, iv, n, last)
     # Re-establish zero storage outside the active block: the augmentation column of `q` and
     # row `n + 1` of `R` are working space this verb writes into, and nothing above assumes
     # they were already clean on entry.
