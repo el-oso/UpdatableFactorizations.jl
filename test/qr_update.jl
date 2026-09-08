@@ -136,3 +136,156 @@ end
     @test err.a === F
     @test iszero(err.i)
 end
+
+@testitem "QR rank-1 update" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((10, 5), (8, 7), (6, 6), (9, 1), (30, 12))
+        A = randn(T, m, n)
+        u = randn(T, m)
+        v = randn(T, n)
+        F = UpdatableQR(A)
+        Qb = copy(F.Q)
+        lowrankupdate!(F, u, v)
+        @test norm(F.Q * F.R - (A + u * v')) / norm(A) < 1.0e-12
+        @test norm(F.Q' * F.Q - I) < 1.0e-12
+        R = getfield(F, :factors)
+        @test all(iszero, [R[i, j] for j in 1:F.n for i in (j + 1):F.n])
+        # A generic `u` has a residual outside the range of `Q`, so the update takes the branch
+        # that admits a new direction and the range moves. Measured, this quantity is 0.92 here
+        # and 1.5e-15 when the other branch runs. It is the control for the in-range item below.
+        if m > n
+            @test norm(F.Q - Qb * (Qb' * F.Q)) > 1.0e-6
+        end
+    end
+end
+
+@testitem "QR rank-1 update with an in-range vector" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((10, 5), (6, 6))
+        A = randn(T, m, n)
+        F = UpdatableQR(A)
+        y = randn(T, n)
+        u = F.Q * y
+        v = randn(T, n)
+        Qb = copy(F.Q)
+        lowrankupdate!(F, u, v)
+        @test norm(F.Q * F.R - (A + u * v')) / norm(A) < 1.0e-12
+        @test norm(F.Q' * F.Q - I) < 1.0e-12
+        R = getfield(F, :factors)
+        @test all(iszero, [R[i, j] for j in 1:F.n for i in (j + 1):F.n])
+        # `u` lies in the range of `Q`, so the update stays inside that range: this is what the
+        # branch controls, and the reconstruction residual is correct either way. On a square
+        # factorization it is the only branch there is.
+        @test norm(F.Q - Qb * (Qb' * F.Q)) < 1.0e-12
+    end
+end
+
+@testitem "QR rank-1 update does not consume its vectors" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    m, n = 9, 5
+    F = UpdatableQR(randn(m, n))
+    u = randn(m)
+    v = randn(n)
+    uc = copy(u)
+    vc = copy(v)
+    lowrankupdate!(F, u, v)
+    @test u == uc
+    @test v == vc
+end
+
+@testitem "QR rank-1 update rejects mismatched vector lengths" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    F = UpdatableQR(randn(9, 5))
+    @test_throws "u has length 8, factorization is 9x5" lowrankupdate!(F, zeros(8), zeros(5))
+    @test_throws "v has length 4, factorization is 9x5" lowrankupdate!(F, zeros(9), zeros(4))
+end
+
+@testitem "QR rank-1 update re-zeroes poisoned spare storage" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    cases = Any[]
+    for T in (Float64, ComplexF64)
+        A = randn(T, 10, 5)
+        push!(cases, (T, A, randn(T, 10), randn(T, 5)))                 # out-of-range branch
+        F0 = UpdatableQR(A)
+        push!(cases, (T, A, F0.Q * randn(T, 5), randn(T, 5)))           # in-range branch
+        Asq = randn(T, 6, 6)
+        push!(cases, (T, Asq, randn(T, 6), randn(T, 6)))                # square: no room to grow
+        push!(cases, (T, A, zeros(T, 10), randn(T, 5)))                 # zero u
+        push!(cases, (T, A, randn(T, 10), zeros(T, 5)))                 # zero v
+    end
+    for (T, A, u, v) in cases
+        F = UpdatableQR(A)
+        # Poison storage outside the active block before updating: `lowrankupdate!` must
+        # re-establish the zero invariant itself, not rely on it already holding.
+        Qbefore = getfield(F, :qrep)
+        Rbefore = getfield(F, :factors)
+        fill!(view(Rbefore, (F.n + 1):size(Rbefore, 1), :), T(77))
+        fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), T(77))
+        fill!(view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)), T(88))
+        @test any(!iszero, view(Rbefore, (F.n + 1):size(Rbefore, 1), :))
+        @test any(!iszero, view(Rbefore, :, (F.n + 1):size(Rbefore, 2)))
+        @test any(!iszero, view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)))
+        lowrankupdate!(F, u, v)
+        Q = getfield(F, :qrep)
+        R = getfield(F, :factors)
+        @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
+        @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
+        @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+    end
+end
+
+@testitem "_project! computes the two-pass Gram-Schmidt coefficients and residual" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: _project!
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64)
+        m, n = 10, 4
+        Qa = Matrix(qr(randn(T, m, n)).Q)[:, 1:n]
+        y = randn(T, n)
+        e = randn(T, m)
+        e .-= Qa * (Qa' * e)
+        e ./= norm(e)
+        beta = abs(randn(real(T)))
+        r = Qa * y + beta * e
+        w = zeros(T, n)
+        corr = zeros(T, n)
+        rho = _project!(w, r, Qa, corr)
+        @test isapprox(w, y; atol = 1.0e-12)
+        @test isapprox(rho, beta; atol = 1.0e-12)
+        @test isapprox(norm(r), beta; atol = 1.0e-12)
+        @test norm(Qa' * r) < 1.0e-12
+    end
+end
+
+@testitem "_project_residual! removes leakage left by a first pass and accumulates it into w" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: _project_residual!
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64)
+        m, n = 10, 4
+        Qa = Matrix(qr(randn(T, m, n)).Q)[:, 1:n]
+        y = randn(T, n)
+        w = copy(y)
+        r = randn(T, m)
+        r .-= Qa * (Qa' * r)
+        leak = randn(T, n)
+        r .+= Qa * leak
+        corr = zeros(T, n)
+        rho = _project_residual!(w, r, Qa, corr)
+        @test isapprox(w, y .+ leak; atol = 1.0e-10)
+        @test norm(Qa' * r) < 1.0e-12
+        @test rho == norm(r)
+    end
+end

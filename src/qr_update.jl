@@ -95,3 +95,93 @@ end
 
 function insert_row! end
 function delete_row! end
+
+# Project `r` onto the columns of `Qa`, leaving the coefficients in `w` and the residual in `r`,
+# and return the residual norm. The second pass is unconditional: with one pass the loss of
+# orthogonality grows like eps divided by the residual norm, which is unbounded as the residual
+# collapses, while two passes hold it at O(eps).
+#
+# Giraud, Langou and Rozlozník, *The loss of orthogonality in the Gram-Schmidt orthogonalization
+# process*, Computers and Mathematics with Applications 50 (2005), 1069-1075.
+function _project!(w, r, Qa, corr)
+    mul!(w, Qa', r)
+    mul!(r, Qa, w, -1, true)
+    return _project_residual!(w, r, Qa, corr)
+end
+
+# The second pass alone, for a caller that has already applied the first and accumulated its
+# coefficients in `w`.
+function _project_residual!(w, r, Qa, corr)
+    mul!(corr, Qa', r)
+    mul!(r, Qa, corr, -1, true)
+    w .+= corr
+    return norm(r)
+end
+
+"""
+    lowrankupdate!(F::UpdatableQR, u, v) -> F
+
+Replace the factorization of `A` with that of `A + u*v'` in `O(mn)` operations. Neither `u` nor
+`v` is modified.
+
+`u` is split into its projection onto the range of `Q` and a residual. When the residual is
+negligible relative to `u`, or when the factorization is square and so has no room for a new
+direction, the update is carried out inside the existing range; that is a legitimate case rather
+than a failure, and the routine never throws for it.
+
+Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the
+Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795.
+Golub and Van Loan, *Matrix Computations*, 4th edition, section 6.5.
+"""
+function LinearAlgebra.lowrankupdate!(
+        F::UpdatableQR{T, S, <:DenseQ}, u::AbstractVector, v::AbstractVector
+    ) where {T, S}
+    m, n = F.m, F.n
+    length(u) == m ||
+        throw(DimensionMismatch("u has length $(length(u)), factorization is $(m)x$(n)"))
+    length(v) == n ||
+        throw(DimensionMismatch("v has length $(length(v)), factorization is $(m)x$(n)"))
+    q = getfield(F, :qrep)
+    Qa = _active(q)
+    r = _spare(q)
+    z = view(F.work, 1:(n + 1))
+    w = view(z, 1:n)
+    corr = view(F.corr, 1:n)
+    iu = firstindex(u) - 1
+    for i in 1:m
+        r[i] = u[iu + i]
+    end
+    unrm = norm(r)
+    rho = _project!(w, r, Qa, corr)
+    RA = _raug(F)
+    if m > n && rho > n * eps(real(T)) * unrm
+        r ./= rho
+        z[n + 1] = rho
+        last = n + 1
+    else
+        fill!(r, zero(T))
+        z[n + 1] = zero(T)
+        last = n
+    end
+    for k in (last - 1):-1:1
+        c, s, rr = givensAlgorithm(z[k], z[k + 1])
+        G = Givens(k, k + 1, oftype(z[k], c), oftype(z[k], s))
+        z[k] = rr
+        z[k + 1] = zero(T)
+        lmul!(G, RA)
+        rmul!(q, G')
+    end
+    iv = firstindex(v) - 1
+    for j in 1:n
+        RA[1, j] += z[1] * conj(v[iv + j])
+    end
+    _retriangularize!(RA, q)
+    # Re-establish zero storage outside the active block: the augmentation column of `q` and
+    # row `n + 1` of `R` are working space this verb writes into, and nothing above assumes
+    # they were already clean on entry.
+    Rfull = getfield(F, :factors)
+    fill!(view(Rfull, (n + 1):size(Rfull, 1), :), zero(T))
+    fill!(view(Rfull, :, (n + 1):size(Rfull, 2)), zero(T))
+    fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
+    return F
+end
