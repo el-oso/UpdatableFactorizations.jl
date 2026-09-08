@@ -156,12 +156,13 @@ for every column: it is `1` when column `j` carries no contribution from the col
 and it collapses toward `0` as `u*v'` drives column `j` into their span. `ArgumentError` is
 thrown, naming the column, when this ratio is at or below `rtol`: a column driven into the span
 of the others leaves the factorization exact but its diagonal entry at the level of rounding
-noise, so a later solve through it divides by that noise. `rtol = 0` admits every update whose
-result is not exactly singular, matching a plain re-triangularization with no rank check.
+noise, so a later solve through it divides by that noise. `rtol = 0` skips the check entirely,
+admitting any update including an exactly singular one, matching a plain re-triangularization
+with no rank check and costing nothing beyond it.
 
-The candidate `R` is computed on a scratch copy, and the check runs against it, before `Q` or
-the stored factor are touched; a thrown update therefore leaves the factorization exactly as it
-was.
+When `rtol` is nonzero, the candidate `R` is computed on a scratch copy, and the check runs
+against it, before `Q` or the stored factor are touched; a thrown update therefore leaves the
+factorization exactly as it was.
 
 Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the
 Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795.
@@ -200,25 +201,30 @@ function LinearAlgebra.lowrankupdate!(
     end
     iv = firstindex(v) - 1
 
-    # Determine the outcome on a scratch copy before touching `Q` or the stored factor: `dummy`
-    # is a zero-row `DenseQ` sharing `RA`'s element type, so the rotations `_absorb_spike!`
-    # mirrors onto it are no-ops, and only `RS` records the candidate triangular factor.
-    RS = copy(RA)
-    zs = copy(z)
-    dummybuf = similar(q.buf, 0, n + 1)
-    dummy = DenseQ{T, typeof(dummybuf)}(dummybuf, 0, n)
-    _absorb_spike!(RS, zs, dummy, v, iv, n, last)
-    for j in 1:n
-        colnorm = norm(view(RS, 1:j, j))
-        abs(RS[j, j]) > rtol * colnorm && continue
-        fill!(r, zero(T))
-        throw(
-            ArgumentError(
-                "column $j of the updated factorization is rank deficient: " *
-                    "abs(R[$j,$j]) = $(abs(RS[j, j])) is at or below " *
-                    "rtol * norm(column $j) = $(rtol * colnorm)"
+    if !iszero(rtol)
+        # Determine the outcome on a scratch copy before touching `Q` or the stored factor:
+        # `dummy` is a zero-row `DenseQ` sharing `RA`'s element type, so the rotations
+        # `_absorb_spike!` mirrors onto it are no-ops, and only `RS` records the candidate
+        # triangular factor. `zs` reuses `F.corr`: nothing below reads `corr`'s contents again
+        # once `_project!` has returned, and it is already sized to `ncap + 1`.
+        RS = copy(RA)
+        zs = view(F.corr, 1:(n + 1))
+        copyto!(zs, z)
+        dummybuf = similar(q.buf, 0, n + 1)
+        dummy = DenseQ{T, typeof(dummybuf)}(dummybuf, 0, n)
+        _absorb_spike!(RS, zs, dummy, v, iv, n, last)
+        for j in 1:n
+            colnorm = norm(view(RS, 1:j, j))
+            abs(RS[j, j]) > rtol * colnorm && continue
+            fill!(r, zero(T))
+            throw(
+                ArgumentError(
+                    "column $j of the updated factorization is rank deficient: " *
+                        "abs(R[$j,$j]) = $(abs(RS[j, j])) is at or below " *
+                        "rtol * norm(column $j) = $(rtol * colnorm)"
+                )
             )
-        )
+        end
     end
 
     _absorb_spike!(RA, z, q, v, iv, n, last)

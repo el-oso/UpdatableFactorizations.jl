@@ -389,3 +389,20 @@ end
         @test norm(F.Q' * F.Q - I) < 1.0e-12
     end
 end
+
+@testitem "QR rank-1 update at rtol = 0 allocates nothing, independent of m" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    n = 30
+    for m in (35, 2000)
+        A = randn(m, n)
+        u = randn(m)
+        v = randn(n)
+        F = UpdatableQR(A)
+        lowrankupdate!(F, u, v; rtol = 0.0)   # warm: compile before measuring
+        G = UpdatableQR(A)
+        bytes = @allocated lowrankupdate!(G, u, v; rtol = 0.0)
+        @test bytes == 0
+    end
+end
