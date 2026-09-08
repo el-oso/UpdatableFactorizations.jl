@@ -5,14 +5,16 @@
 Cholesky factorization that supports rank-1 update and downdate and symmetric insertion,
 deletion and shifting of indices. `capacity` is the largest size the factorization can reach
 before its storage is reallocated.
+
+The lower factor `L` of `A = L*L'` is what is stored, whichever triangle the input holds.
 """
 mutable struct UpdatableCholesky{T, R <: Real, S <: AbstractMatrix{T}} <: Factorization{T}
     factors::S
     n::Int
-    uplo::Char
-    work::Vector{T}      # the update vector, consumed in place
-    cosines::Vector{R}   # downdate rotation cosines
-    rot::Vector{T}       # downdate rotation sines
+    work::Vector{T}      # scratch: the update vector, consumed in place
+    cosines::Vector{R}   # scratch: downdate rotation cosines
+    rot::Vector{T}       # scratch: downdate rotation sines, and the reordered insertion vector
+    perm::Vector{Int}    # scratch: the index permutation, consumed in place
 end
 
 function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1)) where {T}
@@ -22,28 +24,27 @@ function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1)) where {T
     f = zeros(T, capacity, capacity)
     # Cholesky.factors only guarantees the stored triangle; LAPACK leaves the factored matrix in
     # the other one. Copying the stored triangle alone keeps the unstored half a true zero,
-    # which the resizing kernels rely on.
+    # which the resizing kernels rely on. An upper factor U is transposed on the way in, so the
+    # storage always holds the lower factor L = U'.
     if C.uplo == 'L'
         for j in 1:n, i in j:n
             f[i, j] = C.factors[i, j]
         end
     else
-        for j in 1:n, i in 1:j
-            f[i, j] = C.factors[i, j]
+        for j in 1:n, i in j:n
+            f[i, j] = conj(C.factors[j, i])
         end
     end
     return UpdatableCholesky{T, R, Matrix{T}}(
-        f, n, C.uplo, zeros(T, capacity), zeros(R, capacity), zeros(T, capacity)
+        f, n, zeros(T, capacity), zeros(R, capacity), zeros(T, capacity), zeros(Int, capacity)
     )
 end
 
 UpdatableCholesky(A::AbstractMatrix; uplo::Symbol = :L, capacity::Int = 2size(A, 1)) =
     UpdatableCholesky(cholesky(Hermitian(A, uplo)); capacity)
 
-# The active factor presented as lower triangular. When the storage holds U with A = U'U, its
-# adjoint is the lower factor L = U', and assignments through it conjugate as they must.
-_lower(F::UpdatableCholesky) =
-    F.uplo == 'L' ? view(F.factors, 1:F.n, 1:F.n) : adjoint(view(F.factors, 1:F.n, 1:F.n))
+# The active block of the stored lower factor.
+_lower(F::UpdatableCholesky) = view(F.factors, 1:F.n, 1:F.n)
 
 Base.size(F::UpdatableCholesky) = (F.n, F.n)
 Base.size(F::UpdatableCholesky, i::Integer) = i <= 2 ? F.n : 1

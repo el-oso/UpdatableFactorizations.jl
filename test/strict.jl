@@ -31,3 +31,32 @@ end
     lowrankupdate!(G, randn(n), randn(n))
     @test behavior_passes(UpdatableLU, [G])
 end
+
+@testitem "Cholesky resizing allocates nothing after construction" begin
+    using LinearAlgebra
+    function measure(n)
+        function mk()
+            B = randn(n, n)
+            return UpdatableCholesky(cholesky(Symmetric(B * B' + n * I)))
+        end
+        append = zeros(n + 1)
+        append[n + 1] = 100.0
+        insert = zeros(n + 1)
+        insert[2] = 100.0
+        for F in (mk(), mk(), mk(), mk())      # compile every kernel before measuring
+            delete_column!(F, 3)
+        end
+        A, B, C, D = mk(), mk(), mk(), mk()
+        shift_columns!(A, 1, n)
+        UpdatableFactorizations._append!(B, append)
+        insert_column!(C, 2, insert)
+        E, G, H, K = mk(), mk(), mk(), mk()
+        return (
+            @allocated(delete_column!(E, 3)),
+            @allocated(shift_columns!(G, 1, n)),
+            @allocated(UpdatableFactorizations._append!(H, append)),
+            @allocated(insert_column!(K, 2, insert)),
+        )
+    end
+    @test measure(50) == (0, 0, 0, 0)
+end

@@ -57,7 +57,7 @@ end
         for i in 1:n, j in 1:n
             F = UpdatableCholesky(cholesky(Hermitian(A, uplo)))
             shift_columns!(F, i, j)
-            p = UpdatableFactorizations._cyclicperm(n, i, j)
+            p = UpdatableFactorizations._cyclicperm!(zeros(Int, n), i, j)
             L = Matrix(F)
             @test norm(L * L' - A[p, p]) / norm(A) < 1.0e-12
             @test all(x -> abs(imag(x)) < 1.0e-12 && real(x) > 0, diag(L))

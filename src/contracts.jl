@@ -2,9 +2,9 @@ using TypeContracts
 
 @invariants UpdatableCholesky begin
     "size is within capacity" => F -> 0 <= F.n <= size(F.factors, 1)
-    "uplo is L or U" => F -> F.uplo == 'L' || F.uplo == 'U'
     "workspaces cover the active block" =>
-        F -> length(F.work) >= F.n && length(F.cosines) >= F.n && length(F.rot) >= F.n
+        F -> length(F.work) >= F.n && length(F.cosines) >= F.n &&
+        length(F.rot) >= F.n && length(F.perm) >= F.n
     "the stored factor has a positive diagonal" =>
         F -> all(i -> real(F.factors[i, i]) > 0, 1:F.n)
 end

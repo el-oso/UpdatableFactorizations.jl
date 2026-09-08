@@ -14,7 +14,10 @@ function delete_column!(F::UpdatableCholesky, j::Integer)
     n = F.n
     1 <= j <= n || throw(BoundsError(F, j))
     L = _lower(F)
-    tail = [L[i, j] for i in (j + 1):n]
+    tail = view(F.work, 1:(n - j))
+    for i in (j + 1):n
+        tail[i - j] = L[i, j]
+    end
     for c in 1:(n - 1)
         for r in 1:(n - 1)
             L[r, c] = L[r + (r >= j), c + (c >= j)]
@@ -38,6 +41,7 @@ function _grow!(F::UpdatableCholesky{T}, needed::Int) where {T}
     resize!(F.work, newcap)
     resize!(F.cosines, newcap)
     resize!(F.rot, newcap)
+    resize!(F.perm, newcap)
     return F
 end
 
@@ -47,7 +51,7 @@ function _append!(F::UpdatableCholesky{T}, x::AbstractVector) where {T}
     length(x) == n + 1 ||
         throw(DimensionMismatch("x has length $(length(x)), expected $(n + 1)"))
     L = _lower(F)
-    l = Vector{T}(undef, n)
+    l = view(F.work, 1:n)
     for i in 1:n
         acc = x[i]
         for k in 1:(i - 1)
@@ -88,35 +92,67 @@ function _lq!(B)
     return B
 end
 
+# Reorder the factored matrix so that index `perm[r]` lands at position `r`. `perm` is consumed.
 function _permute!(F::UpdatableCholesky, perm::AbstractVector{Int})
     n = F.n
     L = _lower(F)
-    B = Matrix(L)[perm, :]
-    _lq!(B)
+    tmp = view(F.work, 1:n)
+    for k in 1:n
+        perm[k] == k && continue
+        for c in 1:n                   # hold row k while its cycle rotates through it
+            tmp[c] = L[k, c]
+        end
+        i = k
+        while perm[i] != k
+            q = perm[i]
+            for c in 1:n
+                L[i, c] = L[q, c]
+            end
+            perm[i] = i
+            i = q
+        end
+        for c in 1:n
+            L[i, c] = tmp[c]
+        end
+        perm[i] = i
+    end
+    _lq!(L)
     # A Cholesky factor is unique only up to a unit-modulus scaling of each column, and _lq!'s
     # rotations do not constrain that scaling. Fix it so the diagonal is real and positive:
-    # scaling column k by s = conj(B[k,k])/abs(B[k,k]) leaves B*B' unchanged and sets B[k,k] to
-    # abs(B[k,k]).
+    # scaling column k by s = conj(L[k,k])/abs(L[k,k]) leaves L*L' unchanged and makes the
+    # diagonal entry abs(L[k,k]), which is written directly so that it is exactly real.
     for k in 1:n
-        dkk = B[k, k]
+        dkk = L[k, k]
         iszero(dkk) && continue
         s = conj(dkk) / abs(dkk)
-        isone(s) && continue
-        for i in k:n
-            B[i, k] *= s
+        if !isone(s)
+            for i in (k + 1):n
+                L[i, k] *= s
+            end
         end
-    end
-    for c in 1:n, r in 1:n
-        L[r, c] = r >= c ? B[r, c] : zero(eltype(B))
+        L[k, k] = abs(dkk)
     end
     return F
 end
 
-# The permutation that moves the index at position `i` to position `j`, sliding the indices
-# between them by one.
-_cyclicperm(n::Int, i::Int, j::Int) = i <= j ?
-    [1:(i - 1); (i + 1):j; i; (j + 1):n] :
-    [1:(j - 1); i; j:(i - 1); (i + 1):n]
+# Fill `p` with the permutation that moves the index at position `i` to position `j`, sliding
+# the indices between them by one.
+function _cyclicperm!(p::AbstractVector{Int}, i::Int, j::Int)
+    for k in eachindex(p)
+        p[k] = k
+    end
+    if i <= j
+        for k in i:(j - 1)
+            p[k] = k + 1
+        end
+    else
+        for k in (j + 1):i
+            p[k] = k - 1
+        end
+    end
+    p[j] = i
+    return p
+end
 
 """
     shift_columns!(F::UpdatableCholesky, i, j) -> F
@@ -129,7 +165,9 @@ Golub and Van Loan, *Matrix Computations*, 4th edition, section 6.5.
 function shift_columns!(F::UpdatableCholesky, i::Integer, j::Integer)
     1 <= i <= F.n || throw(BoundsError(F, i))
     1 <= j <= F.n || throw(BoundsError(F, j))
-    return _permute!(F, _cyclicperm(F.n, Int(i), Int(j)))
+    p = view(F.perm, 1:F.n)
+    _cyclicperm!(p, Int(i), Int(j))
+    return _permute!(F, p)
 end
 
 """
@@ -146,6 +184,16 @@ function insert_column!(F::UpdatableCholesky, j::Integer, x::AbstractVector)
     length(x) == n + 1 ||
         throw(DimensionMismatch("x has length $(length(x)), expected $(n + 1)"))
     1 <= j <= n + 1 || throw(BoundsError(F, j))
-    _append!(F, vcat(x[1:(j - 1)], x[(j + 1):(n + 1)], x[j]))
+    # Growing here leaves _append!'s own growth a no-op, so `y` stays a view of live storage.
+    _grow!(F, n + 1)
+    y = view(F.rot, 1:(n + 1))
+    for k in 1:(j - 1)
+        y[k] = x[k]
+    end
+    for k in (j + 1):(n + 1)
+        y[k - 1] = x[k]
+    end
+    y[n + 1] = x[j]
+    _append!(F, y)
     return j == n + 1 ? F : shift_columns!(F, n + 1, Int(j))
 end
