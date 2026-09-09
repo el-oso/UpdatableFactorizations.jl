@@ -17,8 +17,11 @@ end
 function default_rankk!(
         C::StridedMatrix{T}, A::StridedMatrix{T}, alpha, beta; uplo::Char = 'L'
     ) where {T <: LinearAlgebra.BlasComplex}
+    # herk! takes real scalars; converting straight to R (rather than through `real(...)`) relies
+    # on Julia's Complex-to-Real conversion to throw InexactError on a nonzero imaginary part
+    # instead of silently discarding it.
     R = real(T)
-    return BLAS.herk!(uplo, 'N', R(real(alpha)), A, R(real(beta)), C)
+    return BLAS.herk!(uplo, 'N', R(alpha), A, R(beta), C)
 end
 
 default_rankk!(C, A, alpha, beta; uplo::Char = 'L') = mul!(C, A, A', alpha, beta)

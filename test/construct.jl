@@ -60,6 +60,14 @@ end
     @test norm(tril(C_blas) - tril(C_generic)) / norm(tril(C_blas)) < 100 * eps()
 end
 
+@testitem "default_rankk! rejects a non-real alpha on a complex element type" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    A = randn(ComplexF64, 9, 4)
+    C = Matrix(Hermitian(randn(ComplexF64, 9, 9)))
+    @test_throws InexactError UpdatableFactorizations.default_rankk!(C, A, 2.0 + 0.7im, 1.0)
+end
+
 @testitem "cholesky_crout factors" begin
     using LinearAlgebra, Random
     Random.seed!(20260908)
