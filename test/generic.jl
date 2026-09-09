@@ -323,3 +323,52 @@ end
     # Offset and viewed forms are copied into the factorization's own storage, never mutated.
     @test u == uorig && v == vorig && x == xorig && row == roworig
 end
+
+@testitem "construction routines work for non-BLAS element types" begin
+    using LinearAlgebra, ForwardDiff, Random
+    Random.seed!(20260908)
+    n = 7
+    B64 = randn(n, n)
+    A64 = Matrix(Symmetric(B64 * B64' + n * I))
+    G64 = randn(n, n) + n * I
+    for T in (Float32, BigFloat, ForwardDiff.Dual{Nothing, Float64, 1})
+        # Float32 rounding does not scale with eps the way the others do, so this bound is
+        # measured rather than derived: the worst residual over the four checks below is
+        # ~3.5e-7, and flipping the sign of the deferred update in cholesky_crout's flush
+        # raises the Cholesky residual to ~0.37.
+        tol = T === Float32 ? 1.0f-4 : 100 * sqrt(eps(real(T)))
+        A = T.(A64)
+        F = cholesky_crout(A; s = 3)
+        @test norm(Matrix(F) - A) / norm(A) < tol
+
+        G = T.(G64)
+        H = lu_crout(G; s = 3, pivot = NoPivot())
+        @test norm(H.L * H.U - G) / norm(G) < tol
+
+        Fq = qr_bcgs(T.(B64); s = 3)
+        @test norm(Matrix(Fq) - T.(B64)) / norm(T.(B64)) < tol
+        @test norm(Fq.Q' * Fq.Q - I) < tol
+    end
+end
+
+@testitem "construction routines propagate derivatives" begin
+    using LinearAlgebra, ForwardDiff, Random
+    Random.seed!(20260908)
+    n = 6
+    T = ForwardDiff.Dual{Nothing, Float64, 1}
+    seed(x, dir) = T.(x, ForwardDiff.Partials.(tuple.(dir)))
+    partials(x) = ForwardDiff.partials.(x, 1)
+    haspartial(x) = (ps = partials(x); any(!iszero, ps) && all(isfinite, ps))
+
+    B64 = randn(n, n)
+    A64 = Matrix(Symmetric(B64 * B64' + n * I))
+    dir = Matrix(Symmetric(randn(n, n)))
+    @test haspartial(Matrix(cholesky_crout(seed(A64, dir); s = 2).L))
+
+    G64 = randn(n, n) + n * I
+    @test haspartial(Matrix(lu_crout(seed(G64, randn(n, n)); s = 2, pivot = NoPivot()).U))
+
+    Fq = qr_bcgs(seed(B64, randn(n, n)); s = 2)
+    @test haspartial(Fq.Q)
+    @test haspartial(Matrix(Fq.R))
+end

@@ -369,7 +369,7 @@ end
         Rs = getfield(F, :factors)
         @test all(iszero, [Rs[i, j] for j in 1:n for i in (j + 1):n])
     end
-    # The factorization is updatable on return, which is what the Layer-1 return type is for.
+    # The factorization is updatable on return, since qr_bcgs returns an UpdatableQR.
     A = randn(12, 7)
     F = qr_bcgs(A; s = 4)
     x = randn(12)
