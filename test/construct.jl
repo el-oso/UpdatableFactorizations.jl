@@ -351,3 +351,127 @@ end
     @test norm((A + u * v') * (F \ ones(n)) - ones(n)) < 1.0e-7
     @test behavior_passes(UpdatableLU, [F])
 end
+
+@testitem "qr_bcgs factors a rectangular matrix" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: capacity
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64), (m, n) in ((12, 7), (9, 9)), s in (1, 3, 64)
+        A = randn(T, m, n)
+        F = qr_bcgs(A; s)
+        @test F isa UpdatableQR{T}
+        @test size(F) == (m, n)
+        @test size(F.Q) == (m, n)
+        @test norm(Matrix(F) - A) / norm(A) < 1.0e-12
+        @test norm(F.Q' * F.Q - I) < 1.0e-12
+        # `F.R` wraps the stored block in `UpperTriangular`, which reports a zero subdiagonal
+        # whatever the block holds, so triangularity is asserted on the block itself.
+        Rs = getfield(F, :factors)
+        @test all(iszero, [Rs[i, j] for j in 1:n for i in (j + 1):n])
+    end
+    # The factorization is updatable on return, which is what the Layer-1 return type is for.
+    A = randn(12, 7)
+    F = qr_bcgs(A; s = 4)
+    x = randn(12)
+    insert_column!(F, 8, x)
+    @test norm(Matrix(F) - [A x]) / norm([A x]) < 1.0e-12
+    @test capacity(qr_bcgs(A; s = 4, capacity = (12, 7))) == (12, 7)
+end
+
+@testitem "qr_bcgs reorthogonalization recovers orthogonality" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 12
+    # A Vandermonde matrix of condition number 8.8e8: block CGS alone loses orthogonality as the
+    # square of the condition number, reaching 2.3e-4 here, and one reorthogonalization pass
+    # brings it back to 2.3e-12 because cond(A) * eps is still far below one, which is the
+    # regime the bound requires.
+    A = [x^(j - 1) for x in range(0.0, 1.0; length = n), j in 1:n]
+    Qn = qr_bcgs(A; s = 8, reorth = false).Q
+    Qy = qr_bcgs(A; s = 8, reorth = true).Q
+    @test norm(Qn' * Qn - I) > 1.0e-6
+    @test norm(Qy' * Qy - I) < 1.0e-8
+end
+
+@testitem "qr_bcgs rejects a wide matrix" begin
+    using LinearAlgebra
+    @test_throws "is 3 by 5; qr_bcgs requires m >= n" qr_bcgs(randn(3, 5); s = 2)
+end
+
+@testitem "qr_bcgs rejects a rank-deficient column" begin
+    using LinearAlgebra
+    A = [1.0 0.0 1.0; 0.0 1.0 0.0; 0.0 0.0 0.0]
+    @test_throws "column 3 is a combination of the columns before it" qr_bcgs(A; s = 2)
+    # A column that is dependent only up to rounding leaves noise rather than an exact zero, so
+    # the default exact-zero test accepts it and `rtol` is what catches it.
+    B = [1.0 0.0 1.0; 0.0 1.0 1.0e-15; 0.0 0.0 1.0e-17]
+    @test size(qr_bcgs(B; s = 2)) == (3, 3)
+    @test_throws "column 3 is a combination of the columns before it" qr_bcgs(B; s = 2, rtol = 1.0e-8)
+end
+
+@testitem "qr_bcgs rejects an offset matrix" begin
+    using LinearAlgebra, OffsetArrays
+    A = OffsetMatrix(randn(4, 3), 0:3, 0:2)
+    @test_throws "offset arrays are not supported" qr_bcgs(A; s = 2)
+end
+
+@testitem "qr_bcgs block size divides, does not divide, and covers the whole matrix" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 12
+    A = randn(n, n)
+    Aref = qr(A)
+    for s in (1, n, 5)   # s = 1: every column flushes; s = n: one block, never flushes
+        F = qr_bcgs(A; s)
+        @test norm(Matrix(F) - A) / norm(A) < 1.0e-12
+        @test norm(F.Q' * F.Q - I) < 1.0e-12
+        # Compared against a fresh `qr` of the same matrix rather than against algebra derived
+        # from `F` itself, so an implementation bug in `qr_bcgs` cannot cancel against the check.
+        @test norm(abs.(diag(F.R)) - abs.(diag(Aref.R))) / norm(diag(Aref.R)) < 1.0e-10
+    end
+end
+
+@testitem "qr_bcgs returns a factorization on which the updating verbs work" begin
+    using LinearAlgebra, Random, Test
+    using UpdatableFactorizations: TypeContracts
+    using .TypeContracts: behavior_passes
+    Random.seed!(20260908)
+    m, n = 10, 6
+    A = randn(m, n)
+    F = qr_bcgs(A; s = 3)
+    Rs = getfield(F, :factors)
+    @test iszero(norm(tril(Rs[1:n, 1:n], -1)))
+    lowrankupdate!(F, randn(m), randn(n))
+    @test norm(Matrix(F) - A) > 1.0e-10   # the update actually changed the factorization
+    delete_column!(F, 2)
+    @test size(F) == (m, n - 1)
+    @test norm(F.Q' * F.Q - I) < 1.0e-10
+    @test iszero(norm(tril(getfield(F, :factors)[1:(n - 1), 1:(n - 1)], -1)))
+    @test behavior_passes(UpdatableQR, [F])
+end
+
+@testitem "qr_bcgs conditioning sweep: reorth = true stays orthogonal, false does not" begin
+    using LinearAlgebra, Printf
+    # A Vandermonde matrix on n equally spaced nodes in [0, 1]: cond(A) rises by roughly two
+    # orders of magnitude per two columns, which sweeps kappa across ten decades while s stays
+    # fixed, so the sweep isolates the effect of conditioning from the effect of block size.
+    println("qr_bcgs orthogonality vs conditioning (s = 8):")
+    @printf("%3s %12s %14s %14s\n", "n", "cond(A)", "reorth=false", "reorth=true")
+    for n in 6:2:18
+        A = [x^(j - 1) for x in range(0.0, 1.0; length = n), j in 1:n]
+        kappa = cond(A)
+        en = norm(qr_bcgs(A; s = 8, reorth = false).Q' * qr_bcgs(A; s = 8, reorth = false).Q - I)
+        ey = norm(qr_bcgs(A; s = 8, reorth = true).Q' * qr_bcgs(A; s = 8, reorth = true).Q - I)
+        @printf("%3d %12.2e %14.2e %14.2e\n", n, kappa, en, ey)
+        # The reorthogonalization pass must never do worse than skipping it, at every point on
+        # the sweep including where both have already broken down.
+        @test ey <= en
+        # Below this threshold, kappa * eps is comfortably under one, which is the regime the
+        # Giraud-Langou-Rozloznik bound requires; here reorth = true stays within a few orders of
+        # magnitude of eps while reorth = false has already lost 2 to 9 digits of orthogonality.
+        if kappa < 1.0e11
+            @test ey < 1.0e-8
+            @test en > 1.0e-14
+        end
+    end
+end

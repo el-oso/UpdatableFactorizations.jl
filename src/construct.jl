@@ -166,3 +166,81 @@ function lu_crout(
     end
     return UpdatableLU(LU{T}(f, ipiv, 0))
 end
+
+"""
+    qr_bcgs(A; s = 64, reorth = true, rtol = 0, capacity = (2m, 2n), matmul! = mul!) -> UpdatableQR
+
+Factor the `m` by `n` matrix `A` with `m >= n` as `Q*R` by block classical Gram-Schmidt and
+return it as an [`UpdatableQR`](@ref) holding the thin `Q` (`m` by `n`, orthonormal columns) and
+the upper triangular `R`, ready for the updating verbs. Columns are orthogonalized one at a time
+against the current block and the accumulated projection against earlier blocks is deferred,
+then flushed every `s` columns through `matmul!(C, A, B, alpha, beta)`, which defaults to
+`LinearAlgebra.mul!`. `capacity` is passed through to the returned factorization.
+
+`reorth = true` runs the projection a second time at every flush and at every column, which
+costs roughly twice as much and gives orthogonality of order `eps` provided the product of the
+condition number and `eps` is well below one. `reorth = false` leaves the loss of orthogonality
+growing as the square of the condition number. [`qr_householder`](@ref) is more accurate than
+either and is the recommended path; see the construction page of the documentation for the
+measured ratios and residuals.
+
+A column whose projection against the columns before it falls to `rtol` times its own norm
+raises `ArgumentError` naming the column, which means the matrix is rank deficient and a
+Gram-Schmidt factorization of it does not exist. The default `rtol = 0` makes that an exact
+collapse; a rank-deficient input in floating point leaves rounding noise instead, so detecting
+it needs an `rtol` above the noise, of order the condition number times `eps`.
+
+Camarero, *Simple, Fast and Practicable Algorithms for Cholesky, LU and QR Decomposition Using
+Fast Rectangular Matrix Multiplication*, arXiv:1812.02056 (2018), Algorithm 3. The
+reorthogonalization bound is Giraud, Langou and Rozložník, *The loss of orthogonality in the
+Gram-Schmidt orthogonalization process*, Computers and Mathematics with Applications 50 (2005),
+1069-1075.
+"""
+function qr_bcgs(
+        A::AbstractMatrix{T}; s::Int = 64, reorth::Bool = true, rtol::Real = 0,
+        capacity::Tuple{Integer, Integer} = (2size(A, 1), 2size(A, 2)), matmul! = mul!
+    ) where {T}
+    Base.require_one_based_indexing(A)
+    m, n = size(A)
+    m >= n || throw(DimensionMismatch("A is $m by $n; qr_bcgs requires m >= n"))
+    s >= 1 || throw(ArgumentError("block size s must be at least 1, got $s"))
+    M = Matrix{T}(undef, m, n)
+    copyto!(M, A)
+    Q = zeros(T, m, n)
+    coef = Matrix{T}(undef, min(s, n), n)
+    z = 1
+    @views for c in 1:n
+        if c == z + s
+            BQ = Q[:, z:(c - 1)]
+            BM = M[:, c:n]
+            C = coef[1:s, 1:(n - c + 1)]
+            matmul!(C, BQ', BM, one(T), zero(T))
+            matmul!(BM, BQ, C, -one(T), one(T))
+            if reorth
+                matmul!(C, BQ', BM, one(T), zero(T))
+                matmul!(BM, BQ, C, -one(T), one(T))
+            end
+            z = c
+        end
+        v = M[:, c]
+        for _ in 1:(reorth ? 2 : 1)
+            for j in z:(c - 1)
+                u = Q[:, j]
+                axpy!(-dot(u, v), u, v)
+            end
+        end
+        nv = norm(v)
+        # The threshold is relative to the original column, not to `v`: by this point the
+        # deferred flush has already projected `v` against every earlier block.
+        (iszero(nv) || nv <= rtol * norm(A[:, c])) &&
+            throw(ArgumentError("column $c is a combination of the columns before it"))
+        v ./= nv
+        copyto!(Q[:, c], v)
+    end
+    R = Matrix{T}(undef, n, n)
+    matmul!(R, Q', A, one(T), zero(T))
+    for j in 1:n, i in (j + 1):n
+        R[i, j] = zero(T)
+    end
+    return UpdatableQR(Q, R; capacity)
+end
