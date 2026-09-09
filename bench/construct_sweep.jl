@@ -1,8 +1,10 @@
 # Sweep of the construction layer against the standard library. Every comparison alternates
 # single calls of its two sides in one loop, so a clock or thermal drift over the run moves both
 # sides together and the per-round ratio cancels it; a bare ratio of two independently measured
-# medians would not. Every round is written out, not just the median, so tables and plots are
-# regenerated from the saved JSON rather than by re-running.
+# medians would not. Every round records both a wall time and a GC-net time (wall minus GC
+# pause) for both sides, since the two answer different questions — see `paired` and `record`.
+# Every round is written out, not just the median, so tables and plots are regenerated from the
+# saved JSON rather than by re-running.
 using UpdatableFactorizations
 using LinearAlgebra, ForwardDiff, JSON, Random, Printf, Dates
 
@@ -13,43 +15,67 @@ const ROWS = Dict{String, Any}[]
 const ROUNDS = 12
 
 # One comparison: alternate single calls of `base` and `cand`. The first call to each compiles
-# and primes the allocator and is not timed; every later call is a genuine sample. Returns the
-# per-round times for both sides plus the value each produced on its last call, for correctness
-# checks that would otherwise cost one more expensive call at the largest sizes.
+# and primes the allocator and is not timed; every later call is a genuine sample. `@timed`
+# gives both a wall time and the GC time within it. The candidate allocates far more than the
+# LAPACK baseline it is compared against, so a GC pause tripped by one side lands in that
+# side's wall time and not the other's, and which side gets unlucky on a given round can swing
+# the wall ratio far more than the work actually being measured. A single `GC.gc()` per round,
+# run before either call, starts every round from a comparable heap; measured on the cholesky
+# rankk cell, this brings the wall-ratio spread down to the GC-net spread instead of dwarfing
+# it. Returns per-round wall and GC-net times for both sides plus the value each produced on
+# its last call, for correctness checks that would otherwise cost one more expensive call at
+# the largest sizes.
 function paired(base, cand; rounds = ROUNDS)
     fb = base()
     fc = cand()
-    tb = Float64[]
-    tc = Float64[]
+    wall_b = Float64[]
+    wall_c = Float64[]
+    gcnet_b = Float64[]
+    gcnet_c = Float64[]
     for _ in 1:rounds
-        push!(tb, @elapsed (fb = base()))
-        push!(tc, @elapsed (fc = cand()))
+        GC.gc()
+        rb = @timed (fb = base())
+        push!(wall_b, rb.time)
+        push!(gcnet_b, rb.time - rb.gctime)
+        rc = @timed (fc = cand())
+        push!(wall_c, rc.time)
+        push!(gcnet_c, rc.time - rc.gctime)
     end
-    return tb, tc, fb, fc
+    return wall_b, wall_c, gcnet_b, gcnet_c, fb, fc
 end
 
 median(v) = sort(v)[(length(v) + 1) ÷ 2]
 
+# `wall` is what a caller feels, GC pauses included; `gcnet` (wall minus GC time) is what says
+# which routine is actually faster, since it is not at the mercy of which side a pause happens
+# to land on. Both are recorded, per round, for both sides — neither substitutes for the other.
 function record(;
-        routine, baseline, variant, eltype, n, s, tb, tc, relerr::Float64,
-        extra = Dict{String, Any}()
+        routine, baseline, variant, eltype, n, s, wall_b, wall_c, gcnet_b, gcnet_c,
+        relerr::Float64, extra = Dict{String, Any}()
     )
-    ratio = tc ./ tb
+    ratio_wall = wall_c ./ wall_b
+    ratio_gcnet = gcnet_c ./ gcnet_b
     row = Dict{String, Any}(
         "routine" => routine, "baseline" => baseline, "variant" => variant,
         "eltype" => string(eltype), "n" => n, "s" => s,
-        "base_samples" => tb, "cand_samples" => tc,
-        "base_median_seconds" => median(tb), "cand_median_seconds" => median(tc),
-        "ratio_samples" => ratio, "ratio_median" => median(ratio),
-        "ratio_min" => minimum(ratio), "ratio_max" => maximum(ratio),
+        "base_wall_seconds" => wall_b, "cand_wall_seconds" => wall_c,
+        "base_gcnet_seconds" => gcnet_b, "cand_gcnet_seconds" => gcnet_c,
+        "base_wall_median_seconds" => median(wall_b), "cand_wall_median_seconds" => median(wall_c),
+        "base_gcnet_median_seconds" => median(gcnet_b),
+        "cand_gcnet_median_seconds" => median(gcnet_c),
+        "ratio_wall_samples" => ratio_wall, "ratio_wall_median" => median(ratio_wall),
+        "ratio_wall_min" => minimum(ratio_wall), "ratio_wall_max" => maximum(ratio_wall),
+        "ratio_gcnet_samples" => ratio_gcnet, "ratio_gcnet_median" => median(ratio_gcnet),
+        "ratio_gcnet_min" => minimum(ratio_gcnet), "ratio_gcnet_max" => maximum(ratio_gcnet),
         "relerr" => relerr,
     )
     merge!(row, extra)
     push!(ROWS, row)
     @printf(
-        "%-10s %-18s vs %-16s %-8s n=%-5d s=%-5s ratio %6.2fx [%.2f, %.2f]  relerr %.1e\n",
+        "%-10s %-18s vs %-16s %-8s n=%-5d s=%-5s wall %6.2fx [%.2f, %.2f]  gc-net %6.2fx [%.2f, %.2f]  relerr %.1e\n",
         routine, variant, baseline, string(eltype), n, isnothing(s) ? "-" : string(s),
-        median(ratio), minimum(ratio), maximum(ratio), relerr
+        median(ratio_wall), minimum(ratio_wall), maximum(ratio_wall),
+        median(ratio_gcnet), minimum(ratio_gcnet), maximum(ratio_gcnet), relerr
     )
     return row
 end
@@ -72,10 +98,11 @@ function cholesky_cells(ns, ss)
                 )
             s < n || continue
             cand = () -> cholesky_crout(A; s, rankk! = f)
-            tb, tc, _, Fc = paired(base, cand)
+            wall_b, wall_c, gcnet_b, gcnet_c, _, Fc = paired(base, cand)
             record(;
                 routine = "cholesky", baseline = "lapack potrf", variant = name,
-                eltype = Float64, n, s, tb, tc, relerr = norm(Matrix(Fc) - A) / norm(A)
+                eltype = Float64, n, s, wall_b, wall_c, gcnet_b, gcnet_c,
+                relerr = norm(Matrix(Fc) - A) / norm(A)
             )
         end
     end
@@ -101,18 +128,18 @@ function lu_cells(ns, ss)
             nopivot_ad = () -> lu_crout(Ad; s, pivot = NoPivot())
             nopivot_ar = () -> lu_crout(Ar; s, pivot = NoPivot())
 
-            tb, tc, _, G = paired(getrf, row)
+            wall_b, wall_c, gcnet_b, gcnet_c, _, G = paired(getrf, row)
             record(;
                 routine = "lu", baseline = "lapack getrf", variant = "crout rowmaximum",
-                eltype = Float64, n, s, tb, tc,
+                eltype = Float64, n, s, wall_b, wall_c, gcnet_b, gcnet_c,
                 relerr = norm(G.L * G.U - Ar[G.p, :]) / norm(Ar),
                 extra = merge(random, Dict{String, Any}("interchanges" => count(G.p .!= 1:n)))
             )
 
-            tb, tc, _, F = paired(stdnopivot, nopivot_ad)
+            wall_b, wall_c, gcnet_b, gcnet_c, _, F = paired(stdnopivot, nopivot_ad)
             record(;
                 routine = "lu", baseline = "stdlib nopivot", variant = "crout nopivot",
-                eltype = Float64, n, s, tb, tc,
+                eltype = Float64, n, s, wall_b, wall_c, gcnet_b, gcnet_c,
                 relerr = norm(F.L * F.U - Ad) / norm(Ad), extra = dominant
             )
 
@@ -120,10 +147,10 @@ function lu_cells(ns, ss)
             # ratio isolates the cost of the pivot search and row swaps with no LAPACK call on
             # either side. The residual is not a quality number: without pivoting, a random
             # matrix has no stability bound, and only the time is being compared.
-            tb, tc, _, H = paired(row, nopivot_ar)
+            wall_b, wall_c, gcnet_b, gcnet_c, _, H = paired(row, nopivot_ar)
             record(;
                 routine = "lu", baseline = "crout rowmaximum", variant = "crout nopivot",
-                eltype = Float64, n, s, tb, tc,
+                eltype = Float64, n, s, wall_b, wall_c, gcnet_b, gcnet_c,
                 relerr = norm(H.L * H.U - Ar) / norm(Ar), extra = random
             )
         end
@@ -137,10 +164,10 @@ function qr_cells(ns, ss)
         geqrf = () -> qr!(copy(A))
         geqrfQ = () -> (G = qr!(copy(A)); Matrix(G.Q))
 
-        tb, tc, Fg, Qh = paired(geqrf, geqrfQ)
+        wall_b, wall_c, gcnet_b, gcnet_c, Fg, Qh = paired(geqrf, geqrfQ)
         record(;
             routine = "qr", baseline = "lapack geqrf", variant = "lapack geqrf+Q",
-            eltype = Float64, n, s = nothing, tb, tc,
+            eltype = Float64, n, s = nothing, wall_b, wall_c, gcnet_b, gcnet_c,
             relerr = norm(Qh * Fg.R - A) / norm(A),
             extra = Dict{String, Any}("ortherr" => norm(Qh' * Qh - I))
         )
@@ -148,10 +175,10 @@ function qr_cells(ns, ss)
         for s in ss, reorth in (false, true)
             s < n || continue
             bcgs = () -> qr_bcgs(A; s, reorth)
-            tb, tc, _, Fq = paired(geqrfQ, bcgs)
+            wall_b, wall_c, gcnet_b, gcnet_c, _, Fq = paired(geqrfQ, bcgs)
             record(;
                 routine = "qr", baseline = "lapack geqrf+Q", variant = "bcgs reorth=$reorth",
-                eltype = Float64, n, s, tb, tc,
+                eltype = Float64, n, s, wall_b, wall_c, gcnet_b, gcnet_c,
                 relerr = norm(Matrix(Fq) - A) / norm(A),
                 extra = Dict{String, Any}("ortherr" => norm(Fq.Q' * Fq.Q - I))
             )
@@ -169,18 +196,20 @@ function nonblas_cells()
         unblocked = () -> cholesky_crout(A; s = n)
         stdlib_generic = () -> cholesky(Hermitian(A, :L))
 
-        tb, tc, _, Fs = paired(unblocked, stdlib_generic)
+        wall_b, wall_c, gcnet_b, gcnet_c, _, Fs = paired(unblocked, stdlib_generic)
         record(;
             routine = "cholesky", baseline = "unblocked", variant = "stdlib generic",
-            eltype = T, n, s = n, tb, tc, relerr = scalar(norm(Matrix(Fs) - A) / norm(A))
+            eltype = T, n, s = n, wall_b, wall_c, gcnet_b, gcnet_c,
+            relerr = scalar(norm(Matrix(Fs) - A) / norm(A))
         )
 
         for s in (16, 64)
             blocked = () -> cholesky_crout(A; s)
-            tb, tc, _, Fb = paired(unblocked, blocked)
+            wall_b, wall_c, gcnet_b, gcnet_c, _, Fb = paired(unblocked, blocked)
             record(;
                 routine = "cholesky", baseline = "unblocked", variant = "rankk",
-                eltype = T, n, s, tb, tc, relerr = scalar(norm(Matrix(Fb) - A) / norm(A))
+                eltype = T, n, s, wall_b, wall_c, gcnet_b, gcnet_c,
+                relerr = scalar(norm(Matrix(Fb) - A) / norm(A))
             )
         end
     end

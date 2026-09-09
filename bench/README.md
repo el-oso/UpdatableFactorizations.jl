@@ -14,6 +14,24 @@ of two independently measured medians would not, since the two sides would be me
 apart. Every round is written out, not just the median, so tables and plots are regenerated from
 the saved JSON rather than by re-running.
 
+Each round is timed with `@timed`, which records two numbers rather than one:
+
+- **wall** — the full elapsed time, garbage-collection pauses included. This is what a caller
+  of the routine actually pays.
+- **gc-net** — wall time minus the time spent in GC during that call. This is what answers
+  "which routine is faster": the candidate allocates far more than the LAPACK baseline it is
+  compared against, so a GC pause tripped during one side's call inflates that side's wall
+  time without saying anything about which routine does more or less work. A pause landing on
+  the cheaper side by chance can make the wall ratio favor the more expensive one for that
+  round.
+
+`paired` also runs `GC.gc()` once before each round, which starts every round from a comparable
+heap. Measured on the `cholesky` `rankk` cell at `n=2000, s=64`, this brings the wall-ratio
+spread down to match the gc-net spread; without it, the wall ratio swings across values the
+gc-net ratio never approaches (a wall ratio of 1.7x with samples from 0.8x to 1.8x, against a
+stable 1.1x once GC time is subtracted). Neither wall nor gc-net replaces the other, so both are
+recorded, per round, for both sides.
+
 These algorithms are generally slower than the LAPACK routines they are compared against, in
 line with the standalone prototypes at `docs/superpowers/specs/alg1.jl`/`alg23.jl` and the
 measurements in `docs/superpowers/specs/RESULTS.md`: roughly 0.6-0.95x of blocked LAPACK's speed,
@@ -39,13 +57,15 @@ full run takes on the order of 30-45 minutes.
 ## Output
 
 Each row of `"rows"` in the JSON is one comparison: `routine`, `baseline`, `variant` (the
-candidate), `eltype`, `n`, `s`, the raw per-round times for both sides (`base_samples`,
-`cand_samples`) and their medians, the per-round ratio (`ratio_samples`, candidate over
-baseline) with its median and its min/max spread, and a relative residual (`relerr`) for the
-candidate's factorization against the matrix it was built from. `"rounds"` at the top level of
-the JSON records how many timed rounds each comparison used. Plots and tables are built from
-this file; do not re-run the sweep to regenerate a plot, since the samples already on disk are
-what get plotted.
+candidate), `eltype`, `n`, `s`, and the raw per-round samples and medians for both sides and
+both timings — `base_wall_seconds`/`cand_wall_seconds`, `base_gcnet_seconds`/
+`cand_gcnet_seconds`, and their `..._median_seconds` counterparts. The per-round ratio
+(candidate over baseline) is recorded separately for each timing: `ratio_wall_samples` with
+`ratio_wall_median`/`ratio_wall_min`/`ratio_wall_max`, and `ratio_gcnet_samples` with the same
+three for gc-net. A relative residual (`relerr`) checks the candidate's factorization against
+the matrix it was built from. `"rounds"` at the top level of the JSON records how many timed
+rounds each comparison used. Plots and tables are built from this file; do not re-run the sweep
+to regenerate a plot, since the samples already on disk are what get plotted.
 
 One row is timing-only by construction: `lu` `crout nopivot` compared against `crout
 rowmaximum` on the plain random fixture (`matrix => "random"`) has no accuracy bound to meet,
