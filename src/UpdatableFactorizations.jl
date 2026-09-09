@@ -17,7 +17,9 @@ using StrictMode
 export UpdatableCholesky, UpdatableLU, UpdatableQR
 export insert_column!, delete_column!, shift_columns!, insert_row!, delete_row!
 export qr_householder
+export cholesky_crout, lu_crout, qr_bcgs
 public AbstractQRep, DenseQ, materialize, capacity
+public default_rankk!
 
 include("cholesky_type.jl")
 include("cholesky_update.jl")
@@ -27,6 +29,7 @@ include("lu_update.jl")
 include("qr_rep.jl")
 include("qr_type.jl")
 include("qr_update.jl")
+include("construct.jl")
 include("contracts.jl")
 
 end
