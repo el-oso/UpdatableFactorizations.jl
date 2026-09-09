@@ -49,8 +49,24 @@ function cholesky_crout(
     Base.require_one_based_indexing(A)
     n = LinearAlgebra.checksquare(A)
     s >= 1 || throw(ArgumentError("block size s must be at least 1, got $s"))
-    M = Matrix(Hermitian(A, uplo))
-    L = zeros(T, n, n)
+    capacity >= n || throw(ArgumentError("capacity $capacity is below the size $n"))
+    Hermitian(A, uplo)   # throws when A is a Symmetric/Hermitian wrapper for the other triangle
+    # Only the lower triangle (row >= col) is ever read below, whatever `uplo` names, so only
+    # that triangle is populated; the upper triangle stays at its zero-initialized value and is
+    # never touched again except by a `rankk!` that writes a full block, which reads back only
+    # what it wrote and never feeds the factor itself.
+    M = zeros(T, n, n)
+    if uplo === :L
+        for j in 1:n, i in j:n
+            M[i, j] = A[i, j]
+        end
+    else
+        for j in 1:n, i in j:n
+            M[i, j] = conj(A[j, i])
+        end
+    end
+    f = zeros(T, capacity, capacity)
+    L = view(f, 1:n, 1:n)
     panel = Vector{T}(undef, n)
     z = 1
     @views for c in 1:n
@@ -74,7 +90,7 @@ function cholesky_crout(
             col ./= Lcc
         end
     end
-    return UpdatableCholesky(Cholesky(L, 'L', 0); capacity)
+    return _wrap_cholesky(f, n)
 end
 
 # Index within `col` of the row to move into the pivot position.
@@ -152,19 +168,22 @@ function lu_crout(
             row ./= Lcc
         end
     end
-    # The standard library packs L and U into one array with a unit-diagonal L, which is the
-    # form UpdatableLU splits apart again.
-    f = Matrix{T}(undef, n, n)
+    # L carries the pivots on its diagonal and U is already unit upper triangular, which is
+    # exactly the split UpdatableLU stores (`Lf` unit lower, `d` the pivots, `Uf` unit upper): L
+    # becomes Lf in place by dividing each column by its own pivot, and U needs no conversion.
+    d = Vector{T}(undef, n)
     for j in 1:n
-        for i in 1:(j - 1)
-            f[i, j] = L[i, i] * U[i, j]
-        end
-        f[j, j] = L[j, j]
+        d[j] = L[j, j]
+        L[j, j] = one(T)
         for i in (j + 1):n
-            f[i, j] = L[i, j] / L[j, j]
+            L[i, j] /= d[j]
         end
     end
-    return UpdatableLU(LU{T}(f, ipiv, 0))
+    # `ipiv` is the sequential swap encoding built during the loop (row c exchanged with row
+    # ipiv[c] at step c); `p`, the permutation the type actually stores, is the composition of
+    # those swaps, exactly what `LinearAlgebra.LU`'s own `p` property derives from its `ipiv`.
+    p = LinearAlgebra.ipiv2perm(ipiv, n)
+    return UpdatableLU{T, Matrix{T}}(L, d, U, p, zeros(T, 2n), 0)
 end
 
 """
@@ -204,9 +223,15 @@ function qr_bcgs(
     m, n = size(A)
     m >= n || throw(DimensionMismatch("A is $m by $n; qr_bcgs requires m >= n"))
     s >= 1 || throw(ArgumentError("block size s must be at least 1, got $s"))
+    mcap, ncap = Int(capacity[1]), Int(capacity[2])
+    mcap >= m || throw(ArgumentError("row capacity $mcap is below the size $m"))
+    ncap >= n || throw(ArgumentError("column capacity $ncap is below the size $n"))
     M = Matrix{T}(undef, m, n)
     copyto!(M, A)
-    Q = zeros(T, m, n)
+    # Factoring directly into the leading blocks of the capacity-sized buffers, rather than into
+    # freshly sized Q and R that are copied in afterward, means every entry is written once.
+    qbuf = zeros(T, mcap, ncap + 1)
+    Q = view(qbuf, 1:m, 1:n)
     coef = Matrix{T}(undef, min(s, n), n)
     z = 1
     @views for c in 1:n
@@ -237,10 +262,11 @@ function qr_bcgs(
         v ./= nv
         copyto!(Q[:, c], v)
     end
-    R = Matrix{T}(undef, n, n)
+    rbuf = zeros(T, ncap + 1, ncap + 1)
+    R = view(rbuf, 1:n, 1:n)
     matmul!(R, Q', A, one(T), zero(T))
     for j in 1:n, i in (j + 1):n
         R[i, j] = zero(T)
     end
-    return UpdatableQR(Q, R; capacity)
+    return _wrap_qr(qbuf, rbuf, m, n)
 end

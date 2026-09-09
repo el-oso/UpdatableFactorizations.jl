@@ -41,6 +41,22 @@ mutable struct UpdatableQR{T, S <: AbstractMatrix{T}, Q <: AbstractQRep{T}} <: F
     #                  rank deficiency, live only for the duration of that check
 end
 
+# Wrap capacity-sized `qbuf`/`rbuf` buffers whose leading m x n / n x n blocks already hold a
+# valid thin QR factorization and whose margins are a true zero, allocating only the scratch
+# vectors. Shared by every path that assembles such buffers directly. Throws if a diagonal entry
+# of the stored R is exactly zero, which a structurally rank-deficient column produces.
+function _wrap_qr(qbuf::Matrix{T}, rbuf::Matrix{T}, m::Int, n::Int) where {T}
+    for k in 1:n
+        iszero(rbuf[k, k]) &&
+            throw(ArgumentError("column $k is rank deficient: R[$k,$k] is zero"))
+    end
+    ncap = size(rbuf, 1) - 1
+    return UpdatableQR{T, Matrix{T}, DenseQ{T, Matrix{T}}}(
+        DenseQ{T, Matrix{T}}(qbuf, m, n), rbuf, m, n,
+        zeros(T, ncap + 1), zeros(T, ncap + 1), zeros(T, ncap + 1, ncap)
+    )
+end
+
 function UpdatableQR(
         G::Union{QR{T}, QRCompactWY{T}};
         capacity::Tuple{Integer, Integer} = (2size(G, 1), 2size(G, 2))
@@ -64,14 +80,7 @@ function UpdatableQR(
     for j in 1:n, i in 1:j
         rbuf[i, j] = src[i, j]
     end
-    for k in 1:n
-        iszero(rbuf[k, k]) &&
-            throw(ArgumentError("column $k is rank deficient: R[$k,$k] is zero"))
-    end
-    return UpdatableQR{T, Matrix{T}, DenseQ{T, Matrix{T}}}(
-        DenseQ{T, Matrix{T}}(qbuf, m, n), rbuf, m, n,
-        zeros(T, ncap + 1), zeros(T, ncap + 1), zeros(T, ncap + 1, ncap)
-    )
+    return _wrap_qr(qbuf, rbuf, m, n)
 end
 
 UpdatableQR(A::AbstractMatrix; capacity = (2size(A, 1), 2size(A, 2))) =
@@ -105,14 +114,7 @@ function UpdatableQR(
     for j in 1:n, i in 1:j
         rbuf[i, j] = R[i, j]
     end
-    for k in 1:n
-        iszero(rbuf[k, k]) &&
-            throw(ArgumentError("column $k is rank deficient: R[$k,$k] is zero"))
-    end
-    return UpdatableQR{T, Matrix{T}, DenseQ{T, Matrix{T}}}(
-        DenseQ{T, Matrix{T}}(qbuf, m, n), rbuf, m, n,
-        zeros(T, ncap + 1), zeros(T, ncap + 1), zeros(T, ncap + 1, ncap)
-    )
+    return _wrap_qr(qbuf, rbuf, m, n)
 end
 
 """

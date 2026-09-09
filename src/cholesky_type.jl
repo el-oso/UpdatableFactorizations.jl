@@ -18,9 +18,20 @@ mutable struct UpdatableCholesky{T, R <: Real, S <: AbstractMatrix{T}} <: Factor
     perm::Vector{Int}    # scratch: the index permutation, consumed in place
 end
 
+# Wrap a capacity-sized buffer whose leading n x n block already holds the lower factor and
+# whose untouched region is a true zero, allocating only the scratch vectors. Shared by every
+# path that produces such a buffer directly, so the factor is copied into place once rather than
+# built separately and copied in afterward.
+function _wrap_cholesky(f::Matrix{T}, n::Int) where {T}
+    R = real(T)
+    cap = size(f, 1)
+    return UpdatableCholesky{T, R, Matrix{T}}(
+        f, n, zeros(T, cap), zeros(R, cap), zeros(T, cap), zeros(Int, cap)
+    )
+end
+
 function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1)) where {T}
     n = size(C, 1)
-    R = real(T)
     capacity >= n || throw(ArgumentError("capacity $capacity is below the size $n"))
     f = zeros(T, capacity, capacity)
     # Cholesky.factors only guarantees the stored triangle; LAPACK leaves the factored matrix in
@@ -36,9 +47,7 @@ function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1)) where {T
             f[i, j] = conj(C.factors[j, i])
         end
     end
-    return UpdatableCholesky{T, R, Matrix{T}}(
-        f, n, zeros(T, capacity), zeros(R, capacity), zeros(T, capacity), zeros(Int, capacity)
-    )
+    return _wrap_cholesky(f, n)
 end
 
 UpdatableCholesky(A::AbstractMatrix; uplo::Symbol = :L, capacity::Int = 2size(A, 1)) =
