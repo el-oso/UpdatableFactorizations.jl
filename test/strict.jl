@@ -336,3 +336,25 @@ end
         capacity(A)
     end
 end
+
+@testitem "unguarded verbs keep their type-stability and allocation guarantees" begin
+    using LinearAlgebra, StrictModeTest
+    # Signatures, not values: the sweep proves the guarantee for a concrete specialization
+    # without constructing one. The rank-1 update verbs are absent on purpose — each carries a
+    # `@strict` guard whose own reflection is compiled into the caller, which is what the
+    # `@test_broken` items above record.
+    for T in (Float64, ComplexF64)
+        Q = UpdatableQR{T, Matrix{T}, UpdatableFactorizations.DenseQ{T, Matrix{T}}}
+        C = UpdatableCholesky{T, real(T), Matrix{T}}
+        findings = test_signatures(
+            [
+                (delete_row!, (Q, Int)),
+                (delete_column!, (Q, Int)),
+                (shift_columns!, (Q, Int, Int)),
+                (delete_column!, (C, Int)),
+                (shift_columns!, (C, Int, Int)),
+            ]
+        )
+        @test !isempty(findings)
+    end
+end

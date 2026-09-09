@@ -1,0 +1,5 @@
+# The suite is written for checks-on: the `@test_broken` items in strict.jl record what the
+# `@strict` guards' own reflection costs when it is compiled into the guarded function's body,
+# and they read as unexpected passes with checks off.
+[StrictMode]
+checks_enabled = true
