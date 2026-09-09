@@ -15,10 +15,10 @@ no blocked counterpart.
 
 ## Running it
 
-The machine's CPU clock must be locked for the reported ratios to mean anything; an unpinned
-clock makes absolute timings untrustworthy (ratios computed from samples interleaved within the
-same `record` call still cancel drift, but comparisons *between* separate runs do not). From the
-package root:
+Each ratio comes from samples of the two sides interleaved within one `record` call, so clock
+drift divides out and the ratios stand on their own. The absolute times do not: they carry
+whatever the CPU clock did during the run, and comparing them across separate runs, or against
+a different machine, means nothing. From the package root:
 
 ```sh
 julia --project=bench bench/construct_sweep.jl
