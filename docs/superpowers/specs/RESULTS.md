@@ -96,55 +96,81 @@ The single real gap the spike found is unpivoted LU, where stdlib has no blocked
 # Construction layer, measured
 
 Julia 1.12.7, OpenBLAS (`LBTConfig([ILP64] libopenblas64_.so)`), one BLAS thread, 2026-09-09.
-From `bench/construct_sweep.jl`, 12 interleaved rounds per comparison, `bench/results/`. Every
-ratio is candidate over baseline, so below 1.00 is faster and above 1.00 is slower. Timings are
-reported both as wall time and with the garbage collection pause subtracted; the two agree to
+From `bench/construct_sweep.jl`, 12 interleaved rounds per comparison, `bench/results/`.
+
+**Speed is quoted relative to the LAPACK baseline, as everywhere above: higher is better, and
+above 1.00x would be a win.** The JSON itself stores the reciprocal, candidate time over baseline
+time, so a figure read straight out of `ratio_gcnet_median` means the opposite of a figure here.
+Timings are recorded both as wall time and with the collection pause subtracted; they agree to
 within a percent throughout this run, and the figures below are the collection-free medians.
 
 These measure the shipped entry points, which also copy the input, allocate the factor and build
-the wrapper the updating verbs need. The bare-kernel numbers earlier in this file do not include
-any of that.
+the wrapper the updating verbs need. The bare-kernel figures earlier in this file do not include
+any of that, so the two are directly comparable only because the entry points no longer carry
+overhead worth reporting.
 
-## LU: what partial pivoting costs
+## Cholesky, relative to LAPACK potrf
 
-    n      s     crout rowmaximum   crout nopivot     crout nopivot     row
-                 vs getrf           vs stdlib nopivot vs crout rowmax   interchanges
-    2000   64    1.12               0.068             0.91              2000
-    2000   128   1.15               0.072             0.91              2000
-    2000   256   1.25               0.079             0.92              2000
-    4000   64    1.12               0.055             0.96              3999
-    4000   128   1.13               0.056             0.93              3999
-    4000   256   1.20               0.059             0.94              3999
+    n=2000   s=64    s=128   s=256
+    syrk     0.92    0.84    0.72
+    gemm     0.54    0.55    0.51
 
-The last two columns come from the same plain random matrix, which pivots at essentially every
-column. Pivoting costs 4 to 9 percent: the pivot search itself is `iamax`, and what remains is
-the row interchanges. The diagonally dominant fixture answers nothing here, because partial
-pivoting selects the diagonal at every column and performs no interchange at all.
+    n=4000   s=64    s=128   s=256
+    syrk     0.92    0.85    0.81
+    gemm     0.47    0.50    0.50
 
-Unpivoted `lu_crout` runs at 0.055 to 0.079 of `lu!(A, NoPivot())`, that is 12.7 to 18.2 times
-faster. This is the one comparison the package wins, and it is a statement about the standard
-library rather than about LAPACK: `lu!(A, NoPivot())` is an unblocked generic fallback with no
-blocked counterpart.
+The bare kernel measured 0.88x and 0.93x at s=64 for the two sizes, so the shipped entry point
+now performs like the standalone prototype. Both confirm the earlier finding: halving the flops
+with `syrk` is worth 1.7 to 2.0 times over the paper-faithful full-block `gemm`, and speed falls
+as `s` grows.
+
+## LU, and what partial pivoting costs
+
+    n      s     pivoted vs getrf   unpivoted vs stdlib nopivot   pivoting costs   interchanges
+    2000   64    0.89               14.7x                         9%               2000
+    2000   128   0.87               13.9x                         10%              2000
+    2000   256   0.80               12.7x                         9%               2000
+    4000   64    0.89               18.1x                         4%               3999
+    4000   128   0.88               17.8x                         8%               3999
+    4000   256   0.83               16.8x                         6%               3999
+
+The pivoting cost compares pivoted against unpivoted on the same plain random matrix, which
+swaps at essentially every column. The pivot search is `iamax`; what remains is the row
+interchanges. The diagonally dominant fixture answers nothing here, because partial pivoting
+selects the diagonal every time and performs no interchange at all.
+
+The 12.7 to 18.1 times against `lu!(A, NoPivot())` is the one comparison the package wins, and it
+is a statement about the standard library rather than about LAPACK: that path is an unblocked
+generic fallback with no blocked counterpart.
+
+## QR, relative to LAPACK geqrf plus forming the thin Q
+
+    n=2000          s=32    s=64    s=128   s=256
+    reorth=false    0.85    0.88    0.89    0.89
+    reorth=true     0.55    0.58    0.59    0.59
+
+    n=4000          s=32    s=64    s=128   s=256
+    reorth=false    0.83    0.88    0.90    0.91
+    reorth=true     0.53    0.58    0.60    0.60
+
+Reorthogonalization costs about 1.5 times, which is the second projection pass.
 
 ## Non-BLAS element types: blocking does not help
 
 Each blocked cell is measured against the same routine at `s >= n`, which never flushes and is
-therefore the unblocked left-looking factorization.
+therefore the unblocked left-looking factorization. Higher is better, so below 1.00x means
+blocking made it slower.
 
-    element type          s=16    s=64    stdlib generic
-    BigFloat, n=120       2.07    1.45    1.18
-    Dual{Float64,1},      1.04    1.01    0.32
-    n=200
+    element type            s=16    s=64    stdlib generic
+    BigFloat, n=120         0.48    0.69    0.85
+    Dual{Float64,1}, n=200  0.96    0.99    3.12
 
-Blocking is a loss for `BigFloat` and neutral for `Dual`. The deferred flush pays only when it
-can hand a block to a BLAS kernel; where `mul!` is itself a scalar loop, deferring the work adds
-buffer traffic and buys nothing. For `Dual` the standard library's generic `cholesky` is about
-three times faster than either, so it is the routine to use for that element type.
+Blocking is a clear loss for `BigFloat` and neutral for `Dual`. The deferred flush pays only when
+it can hand a block to a BLAS kernel; where `mul!` is itself a scalar loop, deferring the work
+adds buffer traffic and buys nothing. For `Dual` the standard library's generic `cholesky` is
+about three times faster than either setting, so that is the routine to use for that element type.
 
 ## No cell beats blocked LAPACK
 
-`cholesky_crout` reaches 1.09 of `potrf` at its best block size, `lu_crout` with partial pivoting
-1.12 of `getrf`, and `qr_bcgs` without reorthogonalization 1.10 of `geqrf` plus forming the thin
-Q. Substituting a full-block multiply for the symmetric rank-k flush costs a further 1.8 to 2.1
-times, and `reorth = true` costs about 1.5 times `reorth = false`. Nothing here is faster than
-the LAPACK routine it is compared against.
+Best figures are 0.92x for Cholesky, 0.89x for pivoted LU and 0.91x for QR without
+reorthogonalization. Nothing here is faster than the LAPACK routine it is compared against.
