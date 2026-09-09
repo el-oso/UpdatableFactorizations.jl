@@ -242,10 +242,10 @@ end
 
 @testitem "UpdatableCholesky satisfies its strict contract" begin
     using LinearAlgebra, StrictModeTest, Test, Random
-    using UpdatableFactorizations: TypeContracts, StrictMode, AbstractUpdatableCholesky
+    using UpdatableFactorizations: TypeContracts, StrictMode
     Random.seed!(20260908)
     const_type = UpdatableCholesky{Float64, Float64, Matrix{Float64}}
-    @test TypeContracts.check_contract(const_type, AbstractUpdatableCholesky).passed
+    @test TypeContracts.check_contract(const_type).passed
 
     n = 8
     B = randn(n, n)
@@ -261,15 +261,11 @@ end
         lowrankdowndate!(mk(), v ./ 4)
     end
     A, C, E, G2, H = mk(), mk(), mk(), mk(), mk()
-    # `@verify_strict`'s own interface check runs against `const_type`'s nominal supertype chain
-    # (`Factorization`), which carries no registered contract, so it passes vacuously here; the
-    # assertion above, using the structural (Holy Trait) form of `check_contract`, is what
-    # actually checks the method surface. `@strict` guards `_ch1up!`'s call inside
-    # `lowrankupdate!` and `_ch1dn!`'s call inside `lowrankdowndate!`, but measured:
-    # `@verify_strict`'s own type-stability check does not throw on either call, unlike
-    # `@test_typestable` above (which uses JET and does), so both are included here; the
-    # `@assert_owned`/`@assert_noalloc` warnings this block prints for them are exactly the
-    # guard's own bookkeeping.
+    # `@strict` guards `_ch1up!`'s call inside `lowrankupdate!` and `_ch1dn!`'s call inside
+    # `lowrankdowndate!`, but measured: `@verify_strict`'s own type-stability check does not
+    # throw on either call, unlike `@test_typestable` above (which uses JET and does), so both
+    # are included here; the `@assert_owned`/`@assert_noalloc` warnings this block prints for
+    # them are exactly the guard's own bookkeeping.
     StrictMode.@verify_strict const_type begin
         delete_column!(A, 3)
         shift_columns!(C, 1, 4)
@@ -282,10 +278,10 @@ end
 
 @testitem "UpdatableLU satisfies its strict contract" begin
     using LinearAlgebra, StrictModeTest, Test, Random
-    using UpdatableFactorizations: TypeContracts, StrictMode, AbstractUpdatableLU
+    using UpdatableFactorizations: TypeContracts, StrictMode
     Random.seed!(20260908)
     const_type = UpdatableLU{Float64, Matrix{Float64}}
-    @test TypeContracts.check_contract(const_type, AbstractUpdatableLU).passed
+    @test TypeContracts.check_contract(const_type).passed
 
     n = 8
     u, v = randn(n), randn(n)
@@ -305,10 +301,10 @@ end
 
 @testitem "UpdatableQR satisfies its strict contract" begin
     using LinearAlgebra, StrictModeTest, Test, Random
-    using UpdatableFactorizations: TypeContracts, StrictMode, AbstractUpdatableQR, DenseQ, capacity
+    using UpdatableFactorizations: TypeContracts, StrictMode, DenseQ, capacity
     Random.seed!(20260908)
     const_type = UpdatableQR{Float64, Matrix{Float64}, DenseQ{Float64, Matrix{Float64}}}
-    @test TypeContracts.check_contract(const_type, AbstractUpdatableQR).passed
+    @test TypeContracts.check_contract(const_type).passed
 
     m, n = 12, 5
     mk() = UpdatableQR(randn(m, n))

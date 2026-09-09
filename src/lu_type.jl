@@ -1,3 +1,5 @@
+abstract type AbstractUpdatableLU{T} <: Factorization{T} end
+
 """
     UpdatableLU(G::LU)
     UpdatableLU(A::AbstractMatrix; pivot = RowMaximum())
@@ -10,7 +12,7 @@ A failed update leaves the factorization invalid: `issuccess(F)` is then `false`
 the column at which the update failed, and solving with or taking the determinant of `F`
 throws. An invalid factorization can only be rebuilt, not repaired.
 """
-mutable struct UpdatableLU{T, S <: AbstractMatrix{T}} <: Factorization{T}
+mutable struct UpdatableLU{T, S <: AbstractMatrix{T}} <: AbstractUpdatableLU{T}
     Lf::S
     d::Vector{T}
     Uf::S

@@ -19,6 +19,7 @@ export insert_column!, delete_column!, shift_columns!, insert_row!, delete_row!
 export qr_householder
 export cholesky_crout, lu_crout, qr_bcgs
 public AbstractQRep, DenseQ, materialize, capacity
+public AbstractUpdatableCholesky, AbstractUpdatableLU, AbstractUpdatableQR
 public default_rankk!
 
 include("cholesky_type.jl")

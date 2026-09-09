@@ -1,3 +1,5 @@
+abstract type AbstractUpdatableCholesky{T} <: Factorization{T} end
+
 """
     UpdatableCholesky(C::Cholesky; capacity = 2size(C, 1))
     UpdatableCholesky(A::AbstractMatrix; uplo = :L, capacity = 2size(A, 1))
@@ -9,7 +11,7 @@ before its storage is reallocated.
 The lower factor `L` of `A = L*L'` is what is stored, whichever triangle the input holds.
 `F.L` is that factor, `F.U` its adjoint, and `Matrix(F)` the reconstructed `A`.
 """
-mutable struct UpdatableCholesky{T, R <: Real, S <: AbstractMatrix{T}} <: Factorization{T}
+mutable struct UpdatableCholesky{T, R <: Real, S <: AbstractMatrix{T}} <: AbstractUpdatableCholesky{T}
     factors::S
     n::Int
     work::Vector{T}      # scratch: the update vector, consumed in place

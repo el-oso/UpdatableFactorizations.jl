@@ -53,15 +53,6 @@ end
         F -> (Q = F.Q; norm(Q' * Q - I) <= sqrt(eps(real(eltype(Q)))) * max(F.n, 1))
 end
 
-# `@strict_contract` forwards to `TypeContracts.@contract`, which requires the type carrying the
-# contract to be abstract; `UpdatableCholesky`, `UpdatableLU` and `UpdatableQR` subtype
-# `Factorization`, not a dedicated interface type. Each verb-surface contract therefore lives on
-# a standalone abstract type, and conformance is established with the structural (Holy Trait)
-# form `check_contract(Concrete, Interface)`, which checks the method surface without requiring
-# `Concrete <: Interface`. The check runs against one fully concrete instantiation of each type,
-# because a bare, unparametrized type name leaves `getfield` access to a type-parameter-typed
-# field inferred as `Any`, which weakens `hasmethod` and widens every downstream return type.
-
 @strict_contract AbstractUpdatableCholesky "the verb surface an updatable Cholesky factorization exposes" begin
     lowrankupdate!(::Self, v::AbstractVector)::Self => "replace A with A + v*v'"
     lowrankdowndate!(::Self, v::AbstractVector)::Self => "replace A with A - v*v'"
@@ -70,14 +61,12 @@ end
     shift_columns!(::Self, i::Integer, j::Integer)::Self => "move index i to position j"
     size(::Self)::Tuple{Int, Int} => "current size"
 end
-check_contract(UpdatableCholesky{Float64, Float64, Matrix{Float64}}, AbstractUpdatableCholesky)
 
 @strict_contract AbstractUpdatableLU "the verb surface an updatable LU factorization exposes" begin
     lowrankupdate!(::Self, u::AbstractVector, v::AbstractVector)::Self =>
         "replace A with A + u*v'"
     size(::Self)::Tuple{Int, Int} => "current size"
 end
-check_contract(UpdatableLU{Float64, Matrix{Float64}}, AbstractUpdatableLU)
 
 @strict_contract AbstractUpdatableQR "the verb surface an updatable QR factorization exposes" begin
     lowrankupdate!(::Self, u::AbstractVector, v::AbstractVector)::Self =>
@@ -90,6 +79,3 @@ check_contract(UpdatableLU{Float64, Matrix{Float64}}, AbstractUpdatableLU)
     size(::Self)::Tuple{Int, Int} => "current shape"
     capacity(::Self)::Tuple{Int, Int} => "largest shape before reallocation"
 end
-check_contract(
-    UpdatableQR{Float64, Matrix{Float64}, DenseQ{Float64, Matrix{Float64}}}, AbstractUpdatableQR
-)

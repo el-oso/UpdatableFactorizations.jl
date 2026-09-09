@@ -1,3 +1,5 @@
+abstract type AbstractUpdatableQR{T} <: Factorization{T} end
+
 """
     UpdatableQR(G::Union{QR, QRCompactWY}; capacity = (2size(G, 1), 2size(G, 2)))
     UpdatableQR(A::AbstractMatrix; capacity = (2size(A, 1), 2size(A, 2)))
@@ -29,7 +31,7 @@ A thin QR does not determine the sign of its determinant, so `det`, `logdet` and
 are not defined, matching `LinearAlgebra.qr`. For a square factorization,
 `sum(log ∘ abs, diag(F.R))` is `log(abs(det(A)))`.
 """
-mutable struct UpdatableQR{T, S <: AbstractMatrix{T}, Q <: AbstractQRep{T}} <: Factorization{T}
+mutable struct UpdatableQR{T, S <: AbstractMatrix{T}, Q <: AbstractQRep{T}} <: AbstractUpdatableQR{T}
     qrep::Q          # active region is the leading m x n block; column n+1 is spare and zero
     factors::S       # (ncap+1) x (ncap+1); active region is the leading n x n block, and row
     #                  and column n+1 are spare and zero
