@@ -170,3 +170,33 @@ end
         @test_noalloc delete_row!(H, 3)
     end
 end
+
+@testitem "construction routines have concrete return types" begin
+    using LinearAlgebra
+    chol(A) = cholesky_crout(A; s = 8)
+    lup(A) = lu_crout(A; s = 8)
+    lun(A) = lu_crout(A; s = 8, pivot = NoPivot())
+    qrb(A) = qr_bcgs(A; s = 8)
+    for M in (Matrix{Float64}, Matrix{ComplexF64})
+        @test isconcretetype(Base.infer_return_type(chol, Tuple{M}))
+        @test isconcretetype(Base.infer_return_type(lup, Tuple{M}))
+        @test isconcretetype(Base.infer_return_type(lun, Tuple{M}))
+        @test isconcretetype(Base.infer_return_type(qrb, Tuple{M}))
+    end
+end
+
+@testitem "construction routines are type stable" begin
+    using LinearAlgebra, StrictModeTest, Test, Random
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64)
+        n = 24
+        S = randn(T, n, n)
+        S = S'S + n * I
+        G = randn(T, n, n)
+        W = randn(T, 40, 12)
+        @test_typestable cholesky_crout(Matrix(S); s = 8)
+        @test_typestable lu_crout(copy(G); s = 8)
+        @test_typestable lu_crout(copy(G); s = 8, pivot = NoPivot())
+        @test_typestable qr_bcgs(copy(W); s = 4)
+    end
+end
