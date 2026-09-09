@@ -11,7 +11,10 @@ function LinearAlgebra.lowrankupdate!(F::UpdatableCholesky, v::AbstractVector)
     length(v) == F.n ||
         throw(DimensionMismatch("v has length $(length(v)), factorization is $(F.n)"))
     w = view(F.work, 1:F.n)
-    copyto!(w, v)
+    iv = firstindex(v) - 1
+    for i in 1:F.n
+        w[i] = v[iv + i]
+    end
     @strict _ch1up!(_lower(F), w)
     return F
 end
@@ -47,7 +50,10 @@ function LinearAlgebra.lowrankdowndate!(F::UpdatableCholesky, v::AbstractVector)
     length(v) == F.n ||
         throw(DimensionMismatch("v has length $(length(v)), factorization is $(F.n)"))
     w = view(F.work, 1:F.n)
-    copyto!(w, v)
+    iv = firstindex(v) - 1
+    for i in 1:F.n
+        w[i] = v[iv + i]
+    end
     @strict _ch1dn!(_lower(F), w, view(F.cosines, 1:F.n), view(F.rot, 1:F.n))
     return F
 end

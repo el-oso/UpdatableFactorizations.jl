@@ -196,7 +196,9 @@ end
 function _project_residual!(w, r, Qa, corr)
     mul!(corr, Qa', r)
     mul!(r, Qa, corr, -1, true)
-    w .+= corr
+    for i in eachindex(w, corr)
+        w[i] += corr[i]
+    end
     return norm(r)
 end
 
@@ -295,9 +297,13 @@ function LinearAlgebra.lowrankupdate!(
         # nothing below reads `corr`'s contents again once `_project!` has returned, and both
         # are already sized to capacity.
         RS = view(F.rscratch, 1:(n + 1), 1:n)
-        copyto!(RS, RA)
+        for j in 1:n, i in 1:(n + 1)
+            RS[i, j] = RA[i, j]
+        end
         zs = view(F.corr, 1:(n + 1))
-        copyto!(zs, z)
+        for i in 1:(n + 1)
+            zs[i] = z[i]
+        end
         _absorb_spike!(RS, zs, _NoQ{T}(), v, iv, n, last)
         for j in 1:n
             colnorm = norm(view(RS, 1:j, j))

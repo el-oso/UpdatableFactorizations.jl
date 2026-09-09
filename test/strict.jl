@@ -163,13 +163,10 @@ end
         G = UpdatableQR(randn(T, m, n))
         @test_typestable delete_row!(G, 3)
         H = UpdatableQR(randn(T, m, n))
-        # AllocCheck's all-paths analysis cannot rule out that `w` and `corr` in
-        # `_project_residual!` alias: both are SubArrays of the same parametric type over
-        # distinct Vector{Float64} storage, and the language gives no way to declare two
-        # same-typed arguments non-aliasing to the analyzer. The defensive copy this forces
-        # Base's broadcast machinery to consider is never reached at run time, which is what
-        # `@allocated(delete_row!(...)) == 0` in "QR updating allocates nothing after
-        # construction" already proves. `delete_row!` carries no `@strict` guard of its own.
-        @test_broken (@test_noalloc(delete_row!(H, 3)); true)
+        # `_project_residual!` accumulates `w += corr` with an explicit loop rather than
+        # broadcasting, so AllocCheck's aliasing analysis has no `copyto!`/broadcast path left
+        # to flag on two same-typed `SubArray`s. `delete_row!` carries no `@strict` guard of
+        # its own.
+        @test_noalloc delete_row!(H, 3)
     end
 end
