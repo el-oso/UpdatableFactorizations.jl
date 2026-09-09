@@ -200,3 +200,42 @@ end
         @test_typestable qr_bcgs(copy(W); s = 4)
     end
 end
+
+@testitem "construction allocates no more than the factorization it returns" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+
+    # Bytes of array storage the returned object owns, including any scratch the updating verbs
+    # rely on and any buffer held indirectly by a nested representation such as the Q factor.
+    function owned(F, depth = 2)
+        F isa AbstractArray && return sizeof(F)
+        (iszero(depth) || isbits(F)) && return 0
+        return sum(owned(getfield(F, f), depth - 1) for f in fieldnames(typeof(F)); init = 0)
+    end
+
+    # A construction routine needs its result plus one mutable copy of the input to work in.
+    # Anything beyond that is a buffer built and then thrown away.
+    function within_budget(f, A)
+        F = f(A)
+        f(A)                                   # compile before measuring
+        bytes = @allocated f(A)
+        budget = owned(F) + sizeof(A)
+        return bytes, budget, bytes <= 1.05 * budget
+    end
+
+    n = 400
+    S = let B = randn(n, n)
+        Matrix(Hermitian(B * B' + n * I))
+    end
+    G = randn(n, n)
+    for (name, f, A) in (
+            ("cholesky_crout", A -> cholesky_crout(A; s = 64), S),
+            ("lu_crout", A -> lu_crout(A; s = 64), G),
+            ("lu_crout unpivoted", A -> lu_crout(A; s = 64, pivot = NoPivot()), S),
+            ("qr_bcgs", A -> qr_bcgs(A; s = 64), G),
+        )
+        bytes, budget, ok = within_budget(f, A)
+        ok || @info "$name allocated $bytes bytes against a budget of $budget"
+        @test ok
+    end
+end
