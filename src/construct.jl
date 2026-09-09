@@ -197,22 +197,17 @@ end
 
 Factor the `m` by `n` matrix `A` with `m >= n` as `Q*R` by block classical Gram-Schmidt and
 return it as an [`UpdatableQR`](@ref) holding the thin `Q` (`m` by `n`, orthonormal columns) and
-the upper triangular `R`, ready for the updating verbs. Each column is orthogonalized against
-the current block and the accumulated projection against earlier blocks is deferred, then
-flushed every `s` columns through `matmul!(C, A, B, alpha, beta)`, which defaults to
+the upper triangular `R`, ready for the updating verbs. Columns are orthogonalized one at a time
+against the current block and the accumulated projection against earlier blocks is deferred,
+then flushed every `s` columns through `matmul!(C, A, B, alpha, beta)`, which defaults to
 `LinearAlgebra.mul!`. `capacity` is passed through to the returned factorization.
 
-`reorth = true` runs the projection against the current block, and the flush against earlier
-blocks, a second time, which costs roughly twice as much and gives orthogonality of order `eps`
-provided the product of the condition number and `eps` is well below one; that second pass is
-what makes it safe for the projection against the current block to be classical Gram-Schmidt
-(every column's coefficients computed from the same starting vector, then subtracted together).
-`reorth = false` runs only one pass and orthogonalizes against the current block one column at a
-time (modified Gram-Schmidt), which loses orthogonality only linearly in the condition number
-rather than the quadratic loss a single classical pass would leave; even so, the loss still grows
-as the square of the condition number once the flush against earlier blocks is accounted for.
-[`qr_householder`](@ref) is more accurate than either and is the recommended path; see the
-construction page of the documentation for the measured ratios and residuals.
+`reorth = true` runs the projection a second time at every flush and at every column, which
+costs roughly twice as much and gives orthogonality of order `eps` provided the product of the
+condition number and `eps` is well below one. `reorth = false` leaves the loss of orthogonality
+growing as the square of the condition number. [`qr_householder`](@ref) is more accurate than
+either and is the recommended path; see the construction page of the documentation for the
+measured ratios and residuals.
 
 A column whose projection against the columns before it falls to `rtol` times its own norm
 raises `ArgumentError` naming the column, which means the matrix is rank deficient and a
@@ -244,7 +239,6 @@ function qr_bcgs(
     qbuf = zeros(T, mcap, ncap + 1)
     Q = view(qbuf, 1:m, 1:n)
     coef = Matrix{T}(undef, min(s, n), n)
-    blockcoef = Vector{T}(undef, min(s, n))
     z = 1
     @views for c in 1:n
         if c == z + s
@@ -260,24 +254,7 @@ function qr_bcgs(
             z = c
         end
         v = M[:, c]
-        if reorth
-            # Classical Gram-Schmidt against the current block: every coefficient in `bc` is
-            # computed from the same `v`, then subtracted in one call, rather than one
-            # dot/axpy! pair per column of the block. The second pass here is what makes this
-            # safe: it restores orthogonality to machine precision regardless of whether the
-            # first pass used classical or column-at-a-time (modified) Gram-Schmidt, so the two
-            # forms agree. Without a second pass they do not: modified Gram-Schmidt loses
-            # orthogonality linearly in the condition number, classical as its square, so
-            # `reorth = false` below runs only the column-at-a-time form instead.
-            if c > z
-                BQ = Q[:, z:(c - 1)]
-                bc = blockcoef[1:(c - z)]
-                mul!(bc, BQ', v)
-                mul!(v, BQ, bc, -one(T), one(T))
-                mul!(bc, BQ', v)
-                mul!(v, BQ, bc, -one(T), one(T))
-            end
-        else
+        for _ in 1:(reorth ? 2 : 1)
             for j in z:(c - 1)
                 u = Q[:, j]
                 axpy!(-dot(u, v), u, v)
