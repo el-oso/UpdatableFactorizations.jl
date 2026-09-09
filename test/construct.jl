@@ -272,3 +272,82 @@ end
     @test norm(Matrix(F) - (A + u * v')) / norm(A) < 1.0e-10
     @test norm((A + u * v') * (F \ ones(n)) - ones(n)) < 1.0e-8
 end
+
+@testitem "lu_crout with partial pivoting factors" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 9
+    for T in (Float64, ComplexF64), s in (1, 4, 9, 64)
+        A = randn(T, n, n)
+        F = lu_crout(A; s)
+        # A plain random matrix must produce a nontrivial permutation, or the residual below
+        # would pass for an implementation that ignores the pivot entirely.
+        @test F.p != 1:n
+        @test norm(F.L * F.U - A[F.p, :]) / norm(A) < 1.0e-12
+        @test norm(A * (F \ ones(T, n)) - ones(T, n)) < 1.0e-10
+    end
+end
+
+@testitem "lu_crout with partial pivoting matches the standard library" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 12
+    for s in (1, 4, 5, 12)
+        A = randn(n, n)
+        F = lu_crout(A; s)
+        G = lu(A)
+        @test F.p != 1:n
+        # Partial pivoting picks the same rows in the same order, so the permutations agree
+        # exactly, across a block size that divides n (4), one that does not (5), one flush per
+        # column (1) and one that never flushes at all (12 = n).
+        @test F.p == G.p
+        @test norm(Matrix(F.L) - Matrix(G.L)) / norm(Matrix(G.L)) < 1.0e-12
+        @test norm(Matrix(F.U) - Matrix(G.U)) / norm(Matrix(G.U)) < 1.0e-12
+    end
+end
+
+@testitem "lu_crout with partial pivoting matches the reference algorithm on complex data" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 12
+    for s in (1, 4, 5, 12)
+        A = randn(ComplexF64, n, n)
+        F = lu_crout(A; s)
+        # LAPACK's zgetrf picks the pivot by |Re|+|Im| (IZAMAX), not by magnitude, so `lu(A)` is
+        # not the right reference for a complex comparison here. `generic_lufact!` is Julia's own
+        # non-LAPACK partial-pivoting algorithm and picks by magnitude, the same quantity
+        # `_pivotrow` compares, so it agrees with `lu_crout` exactly.
+        G = LinearAlgebra.generic_lufact!(copy(A))
+        @test F.p != 1:n
+        @test F.p == G.p
+        @test norm(Matrix(F.L) - Matrix(G.L)) / norm(Matrix(G.L)) < 1.0e-12
+        @test norm(Matrix(F.U) - Matrix(G.U)) / norm(Matrix(G.U)) < 1.0e-12
+    end
+end
+
+@testitem "lu_crout survives a matrix whose unpivoted factorization does not exist" begin
+    using LinearAlgebra
+    A = [0.0 1.0; 1.0 0.0]
+    @test_throws ZeroPivotException(1) lu_crout(A; s = 1, pivot = NoPivot())
+    F = lu_crout(A; s = 1)
+    @test F.p == [2, 1]
+    @test norm(F.L * F.U - A[F.p, :]) < 1.0e-14
+end
+
+@testitem "lu_crout with partial pivoting supports lowrankupdate!" begin
+    using LinearAlgebra, Random, Test
+    using UpdatableFactorizations: TypeContracts
+    using .TypeContracts: behavior_passes
+    Random.seed!(20260908)
+    n = 8
+    A = randn(n, n)
+    F = lu_crout(A; s = 3)
+    @test F.p != 1:n
+    u = randn(n) / n
+    v = randn(n) / n
+    lowrankupdate!(F, u, v)
+    @test issuccess(F)
+    @test norm(Matrix(F) - (A + u * v')) / norm(A) < 1.0e-9
+    @test norm((A + u * v') * (F \ ones(n)) - ones(n)) < 1.0e-7
+    @test behavior_passes(UpdatableLU, [F])
+end
