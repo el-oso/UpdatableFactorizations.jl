@@ -126,22 +126,30 @@ as `s` grows.
 
 ## LU, and what partial pivoting costs
 
-    n      s     pivoted vs getrf   unpivoted vs stdlib nopivot   pivoting costs   interchanges
-    2000   64    0.89               14.7x                         9%               2000
-    2000   128   0.87               13.9x                         10%              2000
-    2000   256   0.80               12.7x                         9%               2000
-    4000   64    0.89               18.1x                         4%               3999
-    4000   128   0.88               17.8x                         8%               3999
-    4000   256   0.83               16.8x                         6%               3999
+    n      s     pivoted    unpivoted   unpivoted   pivoting   inter-
+                 vs getrf   vs getrf    vs stdlib   costs      changes
+    2000   64    0.89       0.98        14.7x       9%         2000
+    2000   128   0.87       0.95        13.9x       10%        2000
+    2000   256   0.80       0.87        12.7x       9%         2000
+    4000   64    0.89       0.93        18.1x       4%         3999
+    4000   128   0.88       0.95        17.8x       8%         3999
+    4000   256   0.83       0.89        16.8x       6%         3999
+
+Read the third column before the fourth. `lu!(A, NoPivot())` is an unblocked generic fallback
+running at roughly a fifteenth of `getrf`, so beating it by 12.7 to 18.1 times says almost
+nothing about this package and almost everything about that fallback. Measured against `getrf`,
+which is what anyone reaching for an LU factorization actually gets, the unpivoted routine is
+0.87 to 0.98 — slightly slower, like every other cell in this document.
+
+The honest claim is therefore narrow: if you need an unpivoted factorization specifically, this
+is the only blocked one available and it is about fifteen times faster than the alternative. It
+is not faster than LAPACK, and quoting the 18.1x beside the Cholesky and QR figures would imply
+that it is.
 
 The pivoting cost compares pivoted against unpivoted on the same plain random matrix, which
 swaps at essentially every column. The pivot search is `iamax`; what remains is the row
 interchanges. The diagonally dominant fixture answers nothing here, because partial pivoting
 selects the diagonal every time and performs no interchange at all.
-
-The 12.7 to 18.1 times against `lu!(A, NoPivot())` is the one comparison the package wins, and it
-is a statement about the standard library rather than about LAPACK: that path is an unblocked
-generic fallback with no blocked counterpart.
 
 ## QR, relative to LAPACK geqrf plus forming the thin Q
 
@@ -172,5 +180,6 @@ about three times faster than either setting, so that is the routine to use for 
 
 ## No cell beats blocked LAPACK
 
-Best figures are 0.92x for Cholesky, 0.89x for pivoted LU and 0.91x for QR without
-reorthogonalization. Nothing here is faster than the LAPACK routine it is compared against.
+Best figures are 0.92x for Cholesky, 0.89x for pivoted LU, 0.98x for unpivoted LU and 0.91x for
+QR without reorthogonalization. Nothing here is faster than the LAPACK routine it is compared
+against, the unpivoted LU included.
