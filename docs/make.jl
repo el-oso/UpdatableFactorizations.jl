@@ -11,6 +11,7 @@ makedocs(;
         "Home" => "index.md",
         "Getting started" => "getting_started.md",
         "Updating and downdating" => "updating.md",
+        "Q representations" => "q_representations.md",
         "Provenance" => "provenance.md",
         "API" => "api.md",
     ],
