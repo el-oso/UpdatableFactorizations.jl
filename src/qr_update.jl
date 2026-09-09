@@ -313,7 +313,7 @@ function LinearAlgebra.lowrankupdate!(
         end
     end
 
-    _absorb_spike!(RA, z, q, v, iv, n, last)
+    @strict _absorb_spike!(RA, z, q, v, iv, n, last)
     # Re-establish zero storage outside the active block: the augmentation column of `q` and
     # row `n + 1` of `R` are working space this verb writes into, and nothing above assumes
     # they were already clean on entry.
