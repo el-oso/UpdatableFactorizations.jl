@@ -167,3 +167,108 @@ end
     @test calls[] == 3
     @test norm(Matrix(F) - A) / norm(A) < 1.0e-13
 end
+
+@testitem "lu_crout without pivoting factors" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 9
+    for T in (Float64, ComplexF64), s in (1, 4, 64)
+        A = randn(T, n, n) + n * I
+        F = lu_crout(A; s, pivot = NoPivot())
+        # With no pivoting the permutation must be the identity, which is what makes the
+        # residual below a test of the factorization rather than of the permutation.
+        @test F.p == 1:n
+        @test norm(F.L * F.U - A) / norm(A) < 1.0e-12
+        @test norm(A * (F \ ones(T, n)) - ones(T, n)) < 1.0e-10
+    end
+end
+
+@testitem "lu_crout without pivoting throws on a zero pivot" begin
+    using LinearAlgebra
+    A = [1.0 2.0 3.0; 2.0 4.0 5.0; 1.0 1.0 1.0]   # the leading 2x2 minor is singular
+    # The second pivot is the one that vanishes, and the exception names it.
+    @test_throws ZeroPivotException(2) lu_crout(A; s = 2, pivot = NoPivot())
+end
+
+@testitem "lu_crout rtol widens the zero-pivot test" begin
+    using LinearAlgebra
+    A = [1.0 2.0 3.0; 2.0 (4.0 + 1.0e-13) 5.0; 1.0 1.0 1.0]
+    F = lu_crout(A; s = 2, pivot = NoPivot())
+    @test issuccess(F)
+    @test abs(F.d[2]) < 1.0e-12
+    @test_throws ZeroPivotException(2) lu_crout(A; s = 2, pivot = NoPivot(), rtol = 1.0e-8)
+end
+
+@testitem "lu_crout rejects an unsupported pivoting strategy" begin
+    using LinearAlgebra
+    A = Matrix(1.0I, 4, 4)
+    @test_throws "use NoPivot() or RowMaximum()" lu_crout(A; s = 2, pivot = ColumnNorm())
+end
+
+@testitem "lu_crout rejects a block size below one" begin
+    using LinearAlgebra
+    A = Matrix(1.0I, 4, 4)
+    @test_throws "block size s must be at least 1, got 0" lu_crout(A; s = 0)
+end
+
+@testitem "lu_crout rejects an offset matrix" begin
+    using LinearAlgebra, OffsetArrays
+    A = OffsetMatrix(Matrix(1.0I, 4, 4), 0:3, 0:3)
+    @test_throws "offset arrays are not supported" lu_crout(A; s = 2)
+end
+
+@testitem "lu_crout with the default pivoting strategy runs and reconstructs" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 9
+    for T in (Float64, ComplexF64), s in (1, 4, 9, 64)
+        A = randn(T, n, n)
+        F = lu_crout(A; s)   # pivot = RowMaximum() by default
+        @test sort(F.p) == 1:n
+        @test norm(F.L * F.U - A[F.p, :]) / norm(A) < 1.0e-12
+        @test norm(A * (F \ ones(T, n)) - ones(T, n)) < 1.0e-9
+    end
+end
+
+@testitem "lu_crout calls the matmul! keyword at each flush" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 10
+    A = randn(n, n) + n * I
+    # matmul! also carries the per-column trailing update (a matrix-vector call), so only the
+    # matrix-shaped calls -- C a matrix rather than a vector -- are the periodic block flush.
+    flush_calls = Ref(0)
+    function counting_matmul!(C, Bl, Br, alpha, beta)
+        ndims(C) == 2 && (flush_calls[] += 1)
+        return mul!(C, Bl, Br, alpha, beta)
+    end
+    F = lu_crout(A; s = 3, pivot = NoPivot(), matmul! = counting_matmul!)
+    # s = 3 on n = 10 flushes after columns 3, 6 and 9 (c = z + s at c = 4, 7, 10).
+    @test flush_calls[] == 3
+    @test norm(F.L * F.U - A) / norm(A) < 1.0e-12
+end
+
+@testitem "lu_crout agrees with lu when the block size does not divide n" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 10
+    for s in (3, 7)
+        A = randn(n, n) + n * I
+        F = lu_crout(A; s, pivot = NoPivot())
+        @test norm(F.L * F.U - A) / norm(A) < 1.0e-12
+    end
+end
+
+@testitem "lu_crout returns a factorization that supports lowrankupdate!" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 8
+    A = randn(n, n) + n * I
+    F = lu_crout(A; s = 3, pivot = NoPivot())
+    u = randn(n) / n
+    v = randn(n) / n
+    lowrankupdate!(F, u, v)
+    @test issuccess(F)
+    @test norm(Matrix(F) - (A + u * v')) / norm(A) < 1.0e-10
+    @test norm((A + u * v') * (F \ ones(n)) - ones(n)) < 1.0e-8
+end

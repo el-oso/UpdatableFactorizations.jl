@@ -76,3 +76,93 @@ function cholesky_crout(
     end
     return UpdatableCholesky(Cholesky(L, 'L', 0); capacity)
 end
+
+# Index within `col` of the row to move into the pivot position.
+_pivotrow(::NoPivot, col) = 1
+_pivotrow(::RowMaximum, col) = findmax(abs, col)[2]
+_pivotrow(pivot, col) = throw(
+    ArgumentError("pivoting strategy $pivot is not supported; use NoPivot() or RowMaximum()")
+)
+
+"""
+    lu_crout(A; s = 64, pivot = RowMaximum(), rtol = 0, matmul! = mul!)
+
+Factor the square matrix `A` as `P*A = L*U` and return an `UpdatableLU`. Columns of `L` and rows
+of `U` are formed one at a time and the trailing update is deferred, then flushed every `s`
+columns through `matmul!(C, A, B, alpha, beta)`, which defaults to `LinearAlgebra.mul!`.
+
+`pivot` is `RowMaximum()` for partial pivoting or `NoPivot()` for the unpivoted factorization,
+which exists only when every leading principal minor is nonzero. Either way a pivot of
+magnitude at most `rtol` times the norm of its column raises `ZeroPivotException(c)` naming the
+column; the default `rtol = 0` makes that an exact-zero test.
+
+The pivoted form, which is the default, is slower than `LinearAlgebra.lu`, which calls LAPACK's
+blocked `getrf`. The unpivoted form has no blocked counterpart in the standard library:
+`lu!(A, NoPivot())` is an unblocked generic fallback. See the construction page of the
+documentation for the measured ratios.
+
+Camarero, *Simple, Fast and Practicable Algorithms for Cholesky, LU and QR Decomposition Using
+Fast Rectangular Matrix Multiplication*, arXiv:1812.02056 (2018), Algorithm 2.
+"""
+function lu_crout(
+        A::AbstractMatrix{T}; s::Int = 64, pivot = RowMaximum(),
+        rtol::Real = 0, matmul! = mul!
+    ) where {T}
+    Base.require_one_based_indexing(A)
+    n = LinearAlgebra.checksquare(A)
+    s >= 1 || throw(ArgumentError("block size s must be at least 1, got $s"))
+    M = Matrix{T}(undef, n, n)
+    copyto!(M, A)
+    L = zeros(T, n, n)
+    U = Matrix{T}(I, n, n)
+    ipiv = collect(1:n)
+    z = 1
+    @views for c in 1:n
+        if c == z + s
+            matmul!(M[c:n, c:n], L[c:n, z:(c - 1)], U[z:(c - 1), c:n], -one(T), one(T))
+            z = c
+        end
+        col = L[c:n, c]
+        copyto!(col, M[c:n, c])
+        c > z && matmul!(col, L[c:n, z:(c - 1)], U[z:(c - 1), c], -one(T), one(T))
+        pv = c + _pivotrow(pivot, col) - 1
+        if pv != c
+            # The swaps need an explicit temporary: `@views` rewrites an indexed left-hand side
+            # in a tuple assignment to `Base.maybeview(...)`, which the parser then rejects as
+            # a function definition.
+            for j in 1:c
+                t = L[c, j]
+                L[c, j] = L[pv, j]
+                L[pv, j] = t
+            end
+            for j in (c + 1):n
+                t = M[c, j]
+                M[c, j] = M[pv, j]
+                M[pv, j] = t
+            end
+            ipiv[c] = pv
+        end
+        Lcc = L[c, c]
+        (iszero(Lcc) || abs(Lcc) <= rtol * norm(col)) && throw(ZeroPivotException(c))
+        if c < n
+            row = U[c, (c + 1):n]
+            copyto!(row, M[c, (c + 1):n])
+            c > z &&
+                matmul!(row, transpose(U[z:(c - 1), (c + 1):n]), L[c, z:(c - 1)], -one(T), one(T))
+            row ./= Lcc
+        end
+    end
+    # The standard library packs L and U into one array with a unit-diagonal L, which is the
+    # form UpdatableLU splits apart again.
+    f = Matrix{T}(undef, n, n)
+    for j in 1:n
+        for i in 1:(j - 1)
+            f[i, j] = L[i, i] * U[i, j]
+        end
+        f[j, j] = L[j, j]
+        for i in (j + 1):n
+            f[i, j] = L[i, j] / L[j, j]
+        end
+    end
+    return UpdatableLU(LU{T}(f, ipiv, 0))
+end
