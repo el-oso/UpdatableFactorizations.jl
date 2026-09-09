@@ -475,3 +475,128 @@ end
         end
     end
 end
+
+@testitem "the flush keyword arguments are the functions that run" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 12
+    B = randn(n, n)
+    A = Matrix(Symmetric(B * B' + n * I))
+
+    calls = Ref(0)
+    counting_rankk!(C, X, alpha, beta; uplo = 'L') =
+        (calls[] += 1; UpdatableFactorizations.default_rankk!(C, X, alpha, beta; uplo))
+    F = cholesky_crout(A; s = 4, rankk! = counting_rankk!)
+    @test calls[] == 2                       # flushes at columns 5 and 9
+    @test norm(Matrix(F) - A) / norm(A) < 1.0e-13
+
+    calls[] = 0
+    counting_matmul!(C, X, Y, alpha, beta) = (calls[] += 1; mul!(C, X, Y, alpha, beta))
+    A2 = randn(n, n)
+    G = lu_crout(A2; s = 4, matmul! = counting_matmul!)
+    # Two flushes, nine deferred column updates and eight deferred row updates. `Matrix(G)` is
+    # rebuilt from `G.L` and `G.U`, so comparing against it would compare the factorization
+    # with itself.
+    @test calls[] == 19
+    @test norm(G.L * G.U - A2[G.p, :]) / norm(A2) < 1.0e-12
+end
+
+@testitem "a full-block flush gives the same Cholesky factor as a rank-k flush" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 12
+    B = randn(n, n)
+    A = Matrix(Symmetric(B * B' + n * I))
+    gemm_rankk!(C, X, alpha, beta; uplo = 'L') = mul!(C, X, X', alpha, beta)
+    F = cholesky_crout(A; s = 4)
+    G = cholesky_crout(A; s = 4, rankk! = gemm_rankk!)
+    @test norm(Matrix(F.L) - Matrix(G.L)) / norm(Matrix(G.L)) < 1.0e-13
+end
+
+@testitem "qr_bcgs calls the matmul! keyword at each flush and never at s >= n" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    m, n = 16, 12
+    A = randn(m, n)
+
+    calls = Ref(0)
+    counting_matmul!(C, X, Y, alpha, beta) = (calls[] += 1; mul!(C, X, Y, alpha, beta))
+
+    # s = 4 on n = 12 flushes at columns 5 and 9 (c = z + s), since z advances to c at each
+    # flush. Each flush issues 2 matmul! calls (4 with reorth, since the projection runs twice),
+    # plus one more call after the loop to form R, which happens whether or not any flush fired.
+    F = qr_bcgs(A; s = 4, matmul! = counting_matmul!)
+    @test calls[] == 9
+    @test norm(Matrix(F) - A) / norm(A) < 1.0e-12
+
+    calls[] = 0
+    Fn = qr_bcgs(A; s = 4, reorth = false, matmul! = counting_matmul!)
+    @test calls[] == 5
+    @test norm(Matrix(Fn) - A) / norm(A) < 1.0e-12
+
+    # s = n never satisfies c == z + s for c in 1:n, so the flush branch is never taken; the sole
+    # call is the one that forms R, and the factorization is still correct without a single flush.
+    calls[] = 0
+    Fu = qr_bcgs(A; s = n, matmul! = counting_matmul!)
+    @test calls[] == 1
+    @test norm(Matrix(Fu) - A) / norm(A) < 1.0e-12
+end
+
+@testitem "the flush keyword arguments run identically on complex data" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 12
+    B = randn(ComplexF64, n, n)
+    A = Matrix(Hermitian(B * B' + n * I))
+    calls = Ref(0)
+    counting_rankk!(C, X, alpha, beta; uplo = 'L') =
+        (calls[] += 1; UpdatableFactorizations.default_rankk!(C, X, alpha, beta; uplo))
+    # A substitute that only forwards to the default must reproduce it exactly, not merely to
+    # within a tolerance, because it runs the identical arithmetic in the identical order.
+    F = cholesky_crout(A; s = 4, rankk! = counting_rankk!)
+    Fd = cholesky_crout(A; s = 4)
+    @test calls[] == 2
+    @test Matrix(F.L) == Matrix(Fd.L)
+
+    calls[] = 0
+    counting_matmul!(C, X, Y, alpha, beta) = (calls[] += 1; mul!(C, X, Y, alpha, beta))
+    A2 = randn(ComplexF64, n, n)
+    G = lu_crout(A2; s = 4, matmul! = counting_matmul!)
+    Gd = lu_crout(A2; s = 4)
+    @test calls[] == 19
+    @test G.L == Gd.L && G.U == Gd.U && G.p == Gd.p
+
+    calls[] = 0
+    m = 16
+    A3 = randn(ComplexF64, m, n)
+    Qs = qr_bcgs(A3; s = 4, matmul! = counting_matmul!)
+    Qd = qr_bcgs(A3; s = 4)
+    @test calls[] == 9
+    @test Qs.Q == Qd.Q && getfield(Qs, :factors) == getfield(Qd, :factors)
+end
+
+@testitem "substituting a flush that computes the wrong update corrupts each factorization" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 12
+    B = randn(n, n)
+    A = Matrix(Symmetric(B * B' + n * I))
+    # Doubling the correction term is wrong at every flush, and s = 4 on n = 12 flushes twice
+    # (at columns 5 and 9), so this configuration reaches the corrupted code path.
+    wrong_rankk!(C, X, alpha, beta; uplo = 'L') =
+        UpdatableFactorizations.default_rankk!(C, X, 2 * alpha, beta; uplo)
+    Fw = cholesky_crout(A; s = 4, rankk! = wrong_rankk!)
+    @test norm(Matrix(Fw) - A) / norm(A) > 1.0e-3
+
+    Random.seed!(20260908)
+    A2 = randn(n, n)
+    wrong_matmul!(C, X, Y, alpha, beta) = mul!(C, X, Y, 2 * alpha, beta)
+    Gw = lu_crout(A2; s = 4, matmul! = wrong_matmul!)
+    @test norm(Gw.L * Gw.U - A2[Gw.p, :]) / norm(A2) > 1.0e-3
+
+    Random.seed!(20260908)
+    m = 16
+    A3 = randn(m, n)
+    Qw = qr_bcgs(A3; s = 4, matmul! = wrong_matmul!)
+    @test norm(Matrix(Qw) - A3) / norm(A3) > 1.0e-3
+end
