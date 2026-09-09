@@ -8,8 +8,10 @@ rank-1 update and column and row insertion, deletion and shifting for QR.
 Building a factorization from scratch goes through `LinearAlgebra` (`cholesky`, `lu`, `qr`): this
 package does not offer a faster way to do that. Its value is in keeping an existing
 factorization current under modification. Each update runs in `O(n^2)` operations for Cholesky
-and LU, or `O(mn)` for QR, and does not allocate once a factorization's scratch storage has been
-sized to the operation.
+and LU, or `O(mn)` for QR. The underlying kernels are allocation-free once a factorization's
+scratch storage has been sized to the operation; the guarded rank-1 entry points reach that same
+allocation-free behavior only when `StrictMode.checks_enabled()` is false — see
+[Updating and downdating](@ref) for the measured byte counts.
 
 The Cholesky rank-1 update and downdate extend `LinearAlgebra.lowrankupdate!` and
 `LinearAlgebra.lowrankdowndate!` with methods for `UpdatableCholesky`, and the QR rank-1 update

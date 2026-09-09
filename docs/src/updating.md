@@ -217,15 +217,16 @@ Matrix(G) ≈ [3.0 1.0; 0.0 5.0e-10; 0.0 0.0]
 ### Allocation
 
 `lowrankupdate!` is the one QR verb guarded by `@strict`, StrictMode's type-stability and
-allocation-freedom check. With `StrictMode.checks_enabled()` true — the setting this package's
-own test suite develops under — the guard's own reflection is real compiled code in
-`lowrankupdate!`'s body, and it allocates on the order of a few kilobytes of StrictMode's own
-bookkeeping every call, independent of `F`'s size. With `checks_enabled` false — the
-configuration a shipped build sets — that guard expands to the bare call and the measured
-allocation is exactly zero. Both figures describe the guard, not the underlying kernel, which is
-allocation-free either way; this page did not re-measure the guarded byte count for the build
-that produced it, since flipping `checks_enabled` is a compile-time preference and forces a
-recompilation, not something a running session can demonstrate live. The other five QR verbs
+allocation-freedom check — the same guard covers Cholesky's `lowrankupdate!` and
+`lowrankdowndate!` and LU's `lowrankupdate!`. With `StrictMode.checks_enabled()` true — the
+setting this package's own test suite develops under — the guard's own reflection is real
+compiled code in the guarded body, and it allocates about 4240 bytes of StrictMode's own
+bookkeeping per call in steady state, independent of `F`'s size. The first call to a given method
+signature is far larger, because the scan is cached per signature rather than repeated: about
+31.9 MB for Cholesky and 4.14 MB for LU. With `checks_enabled` false — the configuration a
+shipped build sets — that guard expands to the bare call, and the measured allocation is exactly
+zero on every call, including the first, for Cholesky, LU and QR. Both figures describe the
+guard, not the underlying kernel, which is allocation-free either way. The other five QR verbs
 carry no `@strict` guard and measure zero bytes regardless of this setting.
 
 ## QR column insertion

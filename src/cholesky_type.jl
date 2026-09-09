@@ -65,6 +65,11 @@ Base.propertynames(::UpdatableCholesky, private::Bool = false) =
 Base.AbstractMatrix(F::UpdatableCholesky) = (L = F.L; L * L')
 Base.Matrix(F::UpdatableCholesky) = Matrix(AbstractMatrix(F))
 
+"""
+    capacity(F::UpdatableCholesky) -> Int
+
+The largest size `F` can reach before its storage is reallocated.
+"""
 capacity(F::UpdatableCholesky) = size(F.factors, 1)
 
 # Every operation either completes or throws with the factorization left as it was.

@@ -135,6 +135,11 @@ _upper(F::UpdatableQR) = view(getfield(F, :factors), 1:F.n, 1:F.n)
 _raug(F::UpdatableQR) = view(getfield(F, :factors), 1:(F.n + 1), 1:F.n)
 _rspare(F::UpdatableQR) = view(getfield(F, :factors), 1:F.n, F.n + 1)
 
+"""
+    capacity(F::UpdatableQR) -> Tuple{Int, Int}
+
+`(mcap, ncap)`, the largest shape `F` can reach before its storage is reallocated.
+"""
 capacity(F::UpdatableQR) = capacity(getfield(F, :qrep))
 
 Base.size(F::UpdatableQR) = (F.m, F.n)

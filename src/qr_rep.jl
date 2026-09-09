@@ -57,8 +57,12 @@ Base.size(q::DenseQ) = (q.m, q.n)
 Base.copyto!(A::AbstractMatrix, q::DenseQ) = copyto!(A, _active(q))
 materialize(q::DenseQ) = q
 
-# The largest shape reachable before the buffer is reallocated. The trailing column is the
-# augmentation every verb works in, not capacity a caller may fill.
+"""
+    capacity(q::DenseQ) -> Tuple{Int, Int}
+
+The largest shape `q` can reach before its buffer is reallocated. The trailing column of the
+buffer is the augmentation every verb works in, not capacity a caller may fill.
+"""
 capacity(q::DenseQ) = (size(q.buf, 1), size(q.buf, 2) - 1)
 
 LinearAlgebra.lmul!(G::Givens, q::DenseQ) = (lmul!(G, _augmented(q)); q)
