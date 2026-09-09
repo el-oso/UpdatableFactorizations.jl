@@ -27,3 +27,28 @@ end
     "Uf is unit upper triangular" =>
         F -> getfield(F, :Uf) == UnitUpperTriangular(getfield(F, :Uf))
 end
+
+@invariants UpdatableQR begin
+    # The body is parenthesized: an unparenthesized `;` splits the clause into two block
+    # statements and the macro rejects the second as a spec that is not a pair.
+    "size is within capacity" =>
+        F -> ((mc, nc) = capacity(F); 0 <= F.n <= F.m <= mc && F.n <= nc)
+    "the representation agrees with the factorization" =>
+        F -> size(getfield(F, :qrep)) == (F.m, F.n)
+    "workspaces cover the augmented block" =>
+        F -> length(F.work) >= F.n + 1 && length(F.corr) >= F.n + 1
+    "the active block of R is upper triangular" =>
+        F -> all(iszero, [F.factors[i, j] for j in 1:F.n for i in (j + 1):F.n])
+    "storage outside the active blocks is zero" =>
+        F -> (
+        Q = getfield(F, :qrep).buf; R = F.factors;
+        all(iszero, view(Q, (F.m + 1):size(Q, 1), :)) &&
+            all(iszero, view(Q, :, (F.n + 1):size(Q, 2))) &&
+            all(iszero, view(R, (F.n + 1):size(R, 1), :)) &&
+            all(iszero, view(R, :, (F.n + 1):size(R, 2)))
+    )
+    # Comparing the Gram matrix against an explicit identity over the active columns is the
+    # assertion itself, not a stand-in for iterating the factor's own indices.
+    "Q has orthonormal columns" =>                                              # noidiom
+        F -> (Q = F.Q; norm(Q' * Q - I) <= sqrt(eps(real(eltype(Q)))) * max(F.n, 1))
+end

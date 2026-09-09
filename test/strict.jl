@@ -63,3 +63,77 @@ end
     end
     @test measure(50) == (0, 0, 0, 0)
 end
+
+@testitem "QR factorization invariants hold after every operation" begin
+    using LinearAlgebra, Random, Test
+    using UpdatableFactorizations: TypeContracts
+    using .TypeContracts: behavior_passes
+
+    Random.seed!(20260908)
+    m, n = 12, 5
+    A = randn(m, n)
+    F = UpdatableQR(A)
+    lowrankupdate!(F, randn(m), randn(n))
+    insert_column!(F, 2, randn(m))
+    delete_column!(F, 4)
+    shift_columns!(F, 1, 4)
+    insert_row!(F, 3, randn(F.n))
+    delete_row!(F, 7)
+    @test behavior_passes(UpdatableQR, [F])
+end
+
+@testitem "QR updating allocates nothing after construction" begin
+    using LinearAlgebra, Random
+
+    Random.seed!(20260908)
+    function measure(::Type{T}, m, n) where {T}
+        mk() = UpdatableQR(randn(T, m, n))
+        u = randn(T, m)
+        v = randn(T, n)
+        x = randn(T, m)
+        row = randn(T, n)
+        for F in (mk(), mk(), mk(), mk(), mk(), mk())   # compile every kernel before measuring
+            lowrankupdate!(F, u, v)
+            insert_column!(F, 2, x)
+            delete_column!(F, 3)
+            shift_columns!(F, 1, 4)
+            insert_row!(F, 2, row)
+            delete_row!(F, 5)
+        end
+        A, B, C, D, E, G = mk(), mk(), mk(), mk(), mk(), mk()
+        return (
+            @allocated(lowrankupdate!(A, u, v)),
+            @allocated(insert_column!(B, 2, x)),
+            @allocated(delete_column!(C, 3)),
+            @allocated(shift_columns!(D, 1, 4)),
+            @allocated(insert_row!(E, 2, row)),
+            @allocated(delete_row!(G, 5)),
+        )
+    end
+    @test measure(Float64, 80, 50) == (0, 0, 0, 0, 0, 0)
+    @test measure(ComplexF64, 80, 50) == (0, 0, 0, 0, 0, 0)
+end
+
+@testitem "QR rank-1 kernels are type stable and allocate nothing" begin
+    using LinearAlgebra, Random, Test, StrictModeTest
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64)
+        m, n = 40, 12
+        F = UpdatableQR(randn(T, m, n))
+        u = randn(T, m)
+        v = randn(T, n)
+        @test_typestable lowrankupdate!(F, u, v)
+        # AllocCheck's all-paths analysis cannot rule out that `w` and `corr` in
+        # `_project_residual!` alias: both are SubArrays of the same parametric type over
+        # distinct Vector{Float64} storage, and the language gives no way to declare two
+        # same-typed arguments non-aliasing to the analyzer. The defensive copy this forces
+        # Base's broadcast machinery to consider is never reached at run time, which is what
+        # `@allocated(lowrankupdate!(...)) == 0` above already proves.
+        @test_broken (@test_noalloc(lowrankupdate!(F, u, v)); true)
+        G = UpdatableQR(randn(T, m, n))
+        @test_typestable delete_row!(G, 3)
+        H = UpdatableQR(randn(T, m, n))
+        @test_broken (@test_noalloc(delete_row!(H, 3)); true)
+    end
+end

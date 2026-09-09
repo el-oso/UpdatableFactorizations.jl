@@ -4,6 +4,13 @@ using LinearAlgebra
 using LinearAlgebra: givensAlgorithm, Givens, PosDefException, ZeroPivotException, QRCompactWY
 import LinearAlgebra: lowrankupdate!, lowrankdowndate!, ldiv!, logdet, det
 using TypeContracts
+# `@assert_noalloc`/`@assert_typestable` are not wrapped around the QR, Cholesky or LU rank-1
+# kernels: each guarantee's own call-site bookkeeping (`Base.return_types`, the allocation-signal
+# scan) allocates several kilobytes and dispatches dynamically, which is exactly what AllocCheck
+# and JET catch when the wrapped kernel is itself checked for allocation-freedom or type
+# stability. Wrapping one of those kernels turns its own `@test_noalloc`/`@test_typestable` gate
+# from passing to failing.
+using StrictMode
 
 export UpdatableCholesky, UpdatableLU, UpdatableQR
 export insert_column!, delete_column!, shift_columns!, insert_row!, delete_row!
