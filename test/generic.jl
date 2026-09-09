@@ -178,3 +178,148 @@ end
     lowrankupdate!(L3, view(vcat(u, randn(2)), 1:n), view(vcat(w, randn(2)), 1:n))
     @test Matrix(L1) ≈ Matrix(L3)
 end
+
+@testitem "QR verbs on non-BLAS element types" begin
+    using LinearAlgebra, ForwardDiff, Random
+
+    Random.seed!(3)
+    DualT = ForwardDiff.Dual{Nothing, Float64, 1}
+
+    m, n = 8, 4
+    A64 = randn(m, n)
+    u64 = randn(m)
+    v64 = randn(n)
+    x64 = randn(m)
+    row64 = randn(n)
+
+    for T in (Float32, BigFloat, DualT)
+        A = T.(A64)
+        u = T.(u64)
+        v = T.(v64)
+        x = T.(x64)
+        row = T.(row64)
+        Aorig, uorig, vorig, xorig, roworig = copy(A), copy(u), copy(v), copy(x), copy(row)
+        # BigFloat and Dual carry near-Float64 precision through generic arithmetic, so the
+        # generic eps-scaled bound holds comfortably. Float32 rounding is coarser and its error
+        # does not scale as cleanly with eps, so its bound is a value measured directly from
+        # this test's own data (worst case over the six checks below is ~2.7e-7).
+        tol = T === Float32 ? 1.0e-5 : 100 * sqrt(eps(real(T)))
+
+        F = UpdatableQR(A)
+        lowrankupdate!(F, u, v)
+        @test norm(Matrix(F) - (A + u * v')) / norm(A) < tol
+
+        G = UpdatableQR(A)
+        insert_column!(G, 2, x)
+        @test norm(Matrix(G) - hcat(A[:, 1], x, A[:, 2:n])) / norm(A) < tol
+
+        H = UpdatableQR(A)
+        delete_column!(H, 2)
+        @test norm(Matrix(H) - A[:, setdiff(1:n, 2)]) / norm(A) < tol
+
+        Sh = UpdatableQR(A)
+        shift_columns!(Sh, 1, 3)
+        @test norm(Matrix(Sh) - A[:, [2, 3, 1, 4]]) / norm(A) < tol
+
+        Ir = UpdatableQR(A)
+        insert_row!(Ir, 2, row)
+        @test norm(Matrix(Ir) - vcat(A[1:1, :], permutedims(row), A[2:m, :])) / norm(A) < tol
+
+        Dr = UpdatableQR(A)
+        delete_row!(Dr, 2)
+        @test norm(Matrix(Dr) - A[setdiff(1:m, 2), :]) / norm(A) < tol
+        # Triangularity, asserted on the stored block: `F.R` wraps it in `UpperTriangular` and
+        # reports a zero subdiagonal whatever the block holds.
+        Rs = getfield(Dr, :factors)
+        @test all(iszero, [Rs[i, j] for j in 1:Dr.n for i in (j + 1):Dr.n])
+
+        # Every verb above copies its vector argument into the factorization's own storage;
+        # none of them may write back into the caller's array.
+        @test A == Aorig && u == uorig && v == vorig && x == xorig && row == roworig
+
+        # A Dual built by broadcasting a type constructor over Float64 values carries an
+        # all-zero partial, so the checks above pass identically whether or not a kernel
+        # actually propagates derivatives. Re-run each operation with one input seeded with a
+        # nonzero partial and check that the result's partial is nonzero and finite. Each case
+        # is built so the true derivative is generically nonzero, and each is confirmed (by
+        # temporarily discarding the seeded partial before the call) to fail when a kernel
+        # silently drops it.
+        if T === DualT
+            seed(y64, dir) = T.(y64, ForwardDiff.Partials.(tuple.(dir)))
+            haspartial(M) = (
+                ps = getindex.(ForwardDiff.partials.(M), 1);
+                any(!iszero, ps) && all(isfinite, ps)
+            )
+            Aseed = seed(A64, randn(m, n))
+
+            Fp = UpdatableQR(T.(A64))
+            lowrankupdate!(Fp, seed(u64, randn(m)), v)
+            @test haspartial(Matrix(Fp))
+
+            Gp = UpdatableQR(T.(A64))
+            insert_column!(Gp, 2, seed(x64, randn(m)))
+            @test haspartial(Matrix(Gp))
+
+            Hp = UpdatableQR(Aseed)
+            delete_column!(Hp, 2)
+            @test haspartial(Matrix(Hp))
+
+            Sp = UpdatableQR(Aseed)
+            shift_columns!(Sp, 1, 3)
+            @test haspartial(Matrix(Sp))
+
+            Ip = UpdatableQR(T.(A64))
+            insert_row!(Ip, 2, seed(row64, randn(n)))
+            @test haspartial(Matrix(Ip))
+
+            Dp = UpdatableQR(Aseed)
+            delete_row!(Dp, 2)
+            @test haspartial(Matrix(Dp))
+        end
+    end
+end
+
+@testitem "QR verbs on offset and viewed inputs" begin
+    using LinearAlgebra, OffsetArrays, Random
+
+    Random.seed!(4)
+    m, n = 8, 4
+    A = randn(m, n)
+    u = randn(m)
+    v = randn(n)
+    x = randn(m)
+    row = randn(n)
+    uorig, vorig, xorig, roworig = copy(u), copy(v), copy(x), copy(row)
+
+    F = UpdatableQR(A)
+    lowrankupdate!(F, u, v)
+    G = UpdatableQR(A)
+    # Different offsets on the two vectors: a shared offset lets a kernel that reuses one
+    # origin variable for both of them pass.
+    lowrankupdate!(G, OffsetVector(u, 0:(m - 1)), OffsetVector(v, -1:(n - 2)))
+    @test Matrix(F) ≈ Matrix(G)
+    H = UpdatableQR(A)
+    lowrankupdate!(H, view(vcat(u, randn(3)), 1:m), view(vcat(v, randn(3)), 1:n))
+    @test Matrix(F) ≈ Matrix(H)
+
+    Fi = UpdatableQR(A)
+    insert_column!(Fi, 2, x)
+    Gi = UpdatableQR(A)
+    insert_column!(Gi, 2, OffsetVector(x, -2:(m - 3)))
+    @test Matrix(Fi) ≈ Matrix(Gi)
+    Hi = UpdatableQR(A)
+    insert_column!(Hi, 2, view(vcat(x, randn(3)), 1:m))
+    @test Matrix(Fi) ≈ Matrix(Hi)
+
+    Fr = UpdatableQR(A)
+    insert_row!(Fr, 3, row)
+    Gr = UpdatableQR(A)
+    insert_row!(Gr, 3, OffsetVector(row, -1:(n - 2)))
+    @test Matrix(Fr) ≈ Matrix(Gr)
+    Hr = UpdatableQR(A)
+    insert_row!(Hr, 3, view(vcat(row, randn(2)), 1:n))
+    @test Matrix(Fr) ≈ Matrix(Hr)
+
+    # Offset and viewed forms are copied into the factorization's own storage, never mutated.
+    @test u == uorig && v == vorig && x == xorig && row == roworig
+end
