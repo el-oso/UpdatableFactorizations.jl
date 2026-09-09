@@ -205,9 +205,12 @@ then flushed every `s` columns through `matmul!(C, A, B, alpha, beta)`, which de
 `reorth = true` runs the projection a second time at every flush and at every column, which
 costs roughly twice as much and gives orthogonality of order `eps` provided the product of the
 condition number and `eps` is well below one. `reorth = false` leaves the loss of orthogonality
-growing as the square of the condition number. [`qr_householder`](@ref) is more accurate than
-either and is the recommended path; see the construction page of the documentation for the
-measured ratios and residuals.
+growing as the square of the condition number. Either way, `R` is accumulated from the
+projection coefficients rather than recomputed as `Q'*A`, so the reconstruction residual
+`norm(Q*R - A)` stays at machine precision even where orthogonality has been lost; only
+`norm(Q'*Q - I)` reflects `reorth`. [`qr_householder`](@ref) is more accurate than either on
+orthogonality and is the recommended path; see the construction page of the documentation for
+the measured ratios and residuals.
 
 A column whose projection against the columns before it falls to `rtol` times its own norm
 raises `ArgumentError` naming the column, which means the matrix is rank deficient and a
@@ -238,17 +241,32 @@ function qr_bcgs(
     # freshly sized Q and R that are copied in afterward, means every entry is written once.
     qbuf = zeros(T, mcap, ncap + 1)
     Q = view(qbuf, 1:m, 1:n)
+    rbuf = zeros(T, ncap + 1, ncap + 1)
+    R = view(rbuf, 1:n, 1:n)
     coef = Matrix{T}(undef, min(s, n), n)
     z = 1
+    # Every coefficient R needs is computed somewhere in this loop: a flush's `C` is `BQ'*BM`
+    # with `BQ` already orthogonal to every earlier block, so it equals the R block pairing the
+    # finished block against the not-yet-processed columns; the intra-block `dot(u, v)` is the R
+    # entry pairing two columns of the same block; `nv` is the diagonal. Summing them here, rather
+    # than recomputing `Q'*A` once Q is complete, reconstructs each column of A as a telescoping
+    # sum of exactly the pieces subtracted from it during elimination — an identity that holds
+    # regardless of how orthogonal the finished Q turns out to be, unlike a fresh `Q'*A`, which
+    # amplifies error by the same loss of orthogonality it is trying to correct for. `rbuf` starts
+    # zero-initialized and only entries with row <= column are ever written, so R comes out upper
+    # triangular without a separate zeroing pass.
     @views for c in 1:n
         if c == z + s
             BQ = Q[:, z:(c - 1)]
             BM = M[:, c:n]
             C = coef[1:s, 1:(n - c + 1)]
+            Rblock = R[z:(c - 1), c:n]
             matmul!(C, BQ', BM, one(T), zero(T))
+            copyto!(Rblock, C)
             matmul!(BM, BQ, C, -one(T), one(T))
             if reorth
                 matmul!(C, BQ', BM, one(T), zero(T))
+                Rblock .+= C
                 matmul!(BM, BQ, C, -one(T), one(T))
             end
             z = c
@@ -257,7 +275,9 @@ function qr_bcgs(
         for _ in 1:(reorth ? 2 : 1)
             for j in z:(c - 1)
                 u = Q[:, j]
-                axpy!(-dot(u, v), u, v)
+                coeff = dot(u, v)
+                R[j, c] += coeff
+                axpy!(-coeff, u, v)
             end
         end
         nv = norm(v)
@@ -265,14 +285,9 @@ function qr_bcgs(
         # deferred flush has already projected `v` against every earlier block.
         (iszero(nv) || nv <= rtol * norm(A[:, c])) &&
             throw(ArgumentError("column $c is a combination of the columns before it"))
+        R[c, c] = nv
         v ./= nv
         copyto!(Q[:, c], v)
-    end
-    rbuf = zeros(T, ncap + 1, ncap + 1)
-    R = view(rbuf, 1:n, 1:n)
-    matmul!(R, Q', A, one(T), zero(T))
-    for j in 1:n, i in (j + 1):n
-        R[i, j] = zero(T)
     end
     return _wrap_qr(qbuf, rbuf, m, n)
 end

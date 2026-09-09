@@ -523,22 +523,24 @@ end
     counting_matmul!(C, X, Y, alpha, beta) = (calls[] += 1; mul!(C, X, Y, alpha, beta))
 
     # s = 4 on n = 12 flushes at columns 5 and 9 (c = z + s), since z advances to c at each
-    # flush. Each flush issues 2 matmul! calls (4 with reorth, since the projection runs twice),
-    # plus one more call after the loop to form R, which happens whether or not any flush fired.
+    # flush. R is accumulated from the coefficients each flush and each column already compute,
+    # so `matmul!` is called only within the flush: 2 calls per flush, 4 with reorth since the
+    # projection runs twice.
     F = qr_bcgs(A; s = 4, matmul! = counting_matmul!)
-    @test calls[] == 9
+    @test calls[] == 8
     @test norm(Matrix(F) - A) / norm(A) < 1.0e-12
 
     calls[] = 0
     Fn = qr_bcgs(A; s = 4, reorth = false, matmul! = counting_matmul!)
-    @test calls[] == 5
+    @test calls[] == 4
     @test norm(Matrix(Fn) - A) / norm(A) < 1.0e-12
 
-    # s = n never satisfies c == z + s for c in 1:n, so the flush branch is never taken; the sole
-    # call is the one that forms R, and the factorization is still correct without a single flush.
+    # s = n never satisfies c == z + s for c in 1:n, so the flush branch is never taken, and
+    # `matmul!` is not called at all: the factorization is still correct with the substitute
+    # never invoked.
     calls[] = 0
     Fu = qr_bcgs(A; s = n, matmul! = counting_matmul!)
-    @test calls[] == 1
+    @test iszero(calls[])
     @test norm(Matrix(Fu) - A) / norm(A) < 1.0e-12
 end
 
@@ -571,7 +573,7 @@ end
     A3 = randn(ComplexF64, m, n)
     Qs = qr_bcgs(A3; s = 4, matmul! = counting_matmul!)
     Qd = qr_bcgs(A3; s = 4)
-    @test calls[] == 9
+    @test calls[] == 8
     @test Qs.Q == Qd.Q && getfield(Qs, :factors) == getfield(Qd, :factors)
 end
 
