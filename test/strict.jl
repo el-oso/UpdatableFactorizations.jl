@@ -239,3 +239,100 @@ end
         @test ok
     end
 end
+
+@testitem "UpdatableCholesky satisfies its strict contract" begin
+    using LinearAlgebra, StrictModeTest, Test, Random
+    using UpdatableFactorizations: TypeContracts, StrictMode, AbstractUpdatableCholesky
+    Random.seed!(20260908)
+    const_type = UpdatableCholesky{Float64, Float64, Matrix{Float64}}
+    @test TypeContracts.check_contract(const_type, AbstractUpdatableCholesky).passed
+
+    n = 8
+    B = randn(n, n)
+    mk() = UpdatableCholesky(cholesky(Symmetric(B * B' + n * I)))
+    x = randn(n + 1) ./ 10
+    x[2] = n + 10.0
+    v = randn(n) ./ 4
+    for _ in 1:4                            # compile every kernel before measuring
+        delete_column!(mk(), 3)
+        shift_columns!(mk(), 1, 4)
+        insert_column!(mk(), 2, x)
+        lowrankupdate!(mk(), v)
+        lowrankdowndate!(mk(), v ./ 4)
+    end
+    A, C, E, G2, H = mk(), mk(), mk(), mk(), mk()
+    # `@verify_strict`'s own interface check runs against `const_type`'s nominal supertype chain
+    # (`Factorization`), which carries no registered contract, so it passes vacuously here; the
+    # assertion above, using the structural (Holy Trait) form of `check_contract`, is what
+    # actually checks the method surface. `@strict` guards `_ch1up!`'s call inside
+    # `lowrankupdate!` and `_ch1dn!`'s call inside `lowrankdowndate!`, but measured:
+    # `@verify_strict`'s own type-stability check does not throw on either call, unlike
+    # `@test_typestable` above (which uses JET and does), so both are included here; the
+    # `@assert_owned`/`@assert_noalloc` warnings this block prints for them are exactly the
+    # guard's own bookkeeping.
+    StrictMode.@verify_strict const_type begin
+        delete_column!(A, 3)
+        shift_columns!(C, 1, 4)
+        insert_column!(E, 2, x)
+        lowrankupdate!(G2, v)
+        lowrankdowndate!(H, v ./ 4)
+        size(A)
+    end
+end
+
+@testitem "UpdatableLU satisfies its strict contract" begin
+    using LinearAlgebra, StrictModeTest, Test, Random
+    using UpdatableFactorizations: TypeContracts, StrictMode, AbstractUpdatableLU
+    Random.seed!(20260908)
+    const_type = UpdatableLU{Float64, Matrix{Float64}}
+    @test TypeContracts.check_contract(const_type, AbstractUpdatableLU).passed
+
+    n = 8
+    u, v = randn(n), randn(n)
+    for _ in 1:4                            # compile every kernel before measuring
+        lowrankupdate!(UpdatableLU(lu(randn(n, n) + n * I)), u, v)
+    end
+    G = UpdatableLU(lu(randn(n, n) + n * I))
+    # `@strict` guards `_bennett!`'s call inside `lowrankupdate!`, but measured: `@verify_strict`'s
+    # own type-stability check does not throw on it, unlike `@test_typestable` above (which uses
+    # JET and does), so the call is included here; the `@assert_owned`/`@assert_noalloc` warnings
+    # this block prints for it are exactly the guard's own bookkeeping.
+    StrictMode.@verify_strict const_type begin
+        lowrankupdate!(G, u, v)
+        size(G)
+    end
+end
+
+@testitem "UpdatableQR satisfies its strict contract" begin
+    using LinearAlgebra, StrictModeTest, Test, Random
+    using UpdatableFactorizations: TypeContracts, StrictMode, AbstractUpdatableQR, DenseQ, capacity
+    Random.seed!(20260908)
+    const_type = UpdatableQR{Float64, Matrix{Float64}, DenseQ{Float64, Matrix{Float64}}}
+    @test TypeContracts.check_contract(const_type, AbstractUpdatableQR).passed
+
+    m, n = 12, 5
+    mk() = UpdatableQR(randn(m, n))
+    for F in (mk(), mk(), mk(), mk(), mk(), mk())   # compile every kernel before measuring
+        insert_column!(F, 2, randn(m))
+        delete_column!(F, 4)
+        shift_columns!(F, 1, 4)
+        insert_row!(F, 3, randn(F.n))
+        delete_row!(F, 7)
+    end
+    A, C, E, G2, H, K = mk(), mk(), mk(), mk(), mk(), mk()
+    u, v = randn(m), randn(n)
+    # `@strict` guards `_absorb_spike!`'s call inside `lowrankupdate!`, but measured:
+    # `@verify_strict`'s own type-stability check does not throw on it, unlike `@test_typestable`
+    # above (which uses JET and does), so the call is included here; the `@assert_owned`/
+    # `@assert_noalloc` warnings this block prints for it are exactly the guard's own bookkeeping.
+    StrictMode.@verify_strict const_type begin
+        insert_column!(A, 2, randn(m))
+        delete_column!(C, 4)
+        shift_columns!(E, 1, 4)
+        insert_row!(G2, 3, randn(G2.n))
+        delete_row!(H, 7)
+        lowrankupdate!(K, u, v)
+        size(A)
+        capacity(A)
+    end
+end
