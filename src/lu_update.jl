@@ -41,7 +41,7 @@ function LinearAlgebra.lowrankupdate!(
     for i in 1:n
         z[i] = conj(v[iv + i])
     end
-    k = @strict _bennett!(getfield(F, :Lf), getfield(F, :d), getfield(F, :Uf), w, z, one(T), rtol)
+    k = _bennett!(getfield(F, :Lf), getfield(F, :d), getfield(F, :Uf), w, z, one(T), rtol)
     if !iszero(k)
         setfield!(F, :info, k)
         throw(ZeroPivotException(k))

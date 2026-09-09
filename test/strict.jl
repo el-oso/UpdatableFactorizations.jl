@@ -1,36 +1,38 @@
 @testitem "LU rank-1 update is type stable and allocates nothing" begin
-    using LinearAlgebra, StrictModeTest, Test, Random
+    using LinearAlgebra, StrictModeTest, Random
     Random.seed!(20260908)
     n = 8
     G = UpdatableLU(lu(randn(n, n) + n * I))
     u = randn(n)
     v = randn(n)
-    # `@strict` guards `_bennett!`'s call in `lowrankupdate!`: with `StrictMode.checks_enabled()`
-    # true (the default this suite runs under), the guard's own reflection is real compiled code
-    # in `lowrankupdate!`'s body, so JET reports the guard's internal dispatch as instability and
-    # AllocCheck reports its bookkeeping as allocation. Both checks are of the guard, not the
-    # kernel it guards; the kernel is type-stable and allocation-free with checks disabled, which
-    # is the configuration a shipped build sets.
-    @test_broken (@test_typestable(lowrankupdate!(G, u, v)); true)
-    @test_broken (@test_noalloc(lowrankupdate!(G, u, v)); true)
+    @test_typestable lowrankupdate!(G, u, v)
+    @test_noalloc lowrankupdate!(G, u, v)
 end
 
 @testitem "Cholesky rank-1 update and downdate are type stable and allocate nothing" begin
-    using LinearAlgebra, StrictModeTest, Test, Random
+    using LinearAlgebra, StrictModeTest, Random
     Random.seed!(20260908)
     n = 8
     B = randn(n, n)
     mk() = UpdatableCholesky(cholesky(Symmetric(B * B' + n * I)))
     v = randn(n) ./ 4
-    # `@strict` guards `_ch1up!`'s call in `lowrankupdate!` and `_ch1dn!`'s call in
-    # `lowrankdowndate!`: with checks enabled (the default this suite runs under), each guard's
-    # own reflection is real compiled code in its host function's body, so JET reports the
-    # guard's internal dispatch as instability and AllocCheck reports its bookkeeping as
-    # allocation. Both kernels are type-stable and allocation-free with checks disabled, which
-    # is the configuration a shipped build sets.
-    @test_broken (@test_typestable(lowrankupdate!(mk(), v)); true)
+    @test_typestable lowrankupdate!(mk(), v)
+    F1 = mk()
+    lowrankupdate!(F1, v)   # warm before measuring
+    F2 = mk()
+    @test iszero(@allocated lowrankupdate!(F2, v))
+    # AllocCheck's all-paths analysis cannot rule out that `copyto!(w, v)`'s destination (a
+    # `SubArray` view of `F.work`) and its source (the caller's own `Vector`) alias: the
+    # language gives no way to declare a `SubArray` and a `Vector` argument non-aliasing to the
+    # analyzer, so Base's generic `copyto!` carries a defensive copy branch AllocCheck counts as
+    # reachable. It is never taken at run time, which the `@allocated` check just above proves.
     @test_broken (@test_noalloc(lowrankupdate!(mk(), v)); true)
-    @test_broken (@test_typestable(lowrankdowndate!(mk(), v)); true)
+
+    @test_typestable lowrankdowndate!(mk(), v)
+    F3 = mk()
+    lowrankdowndate!(F3, v)   # warm before measuring
+    F4 = mk()
+    @test iszero(@allocated lowrankdowndate!(F4, v))
     @test_broken (@test_noalloc(lowrankdowndate!(mk(), v)); true)
 end
 
@@ -108,7 +110,7 @@ end
 end
 
 @testitem "QR updating allocates nothing after construction" begin
-    using LinearAlgebra, Random, Test
+    using LinearAlgebra, Random
 
     Random.seed!(20260908)
     function measure(::Type{T}, m, n) where {T}
@@ -135,13 +137,8 @@ end
             @allocated(delete_row!(G, 5)),
         )
     end
-    for T in (Float64, ComplexF64)
-        bytes = measure(T, 80, 50)
-        # `lowrankupdate!` carries `@strict`'s own reflection cost with checks enabled (the
-        # default this suite runs under); every other verb is unguarded and stays exactly zero.
-        @test_broken iszero(bytes[1])
-        @test bytes[2:end] == (0, 0, 0, 0, 0)
-    end
+    @test measure(Float64, 80, 50) == (0, 0, 0, 0, 0, 0)
+    @test measure(ComplexF64, 80, 50) == (0, 0, 0, 0, 0, 0)
 end
 
 @testitem "QR rank-1 kernels are type stable and allocate nothing" begin
@@ -153,23 +150,17 @@ end
         F = UpdatableQR(randn(T, m, n))
         u = randn(T, m)
         v = randn(T, n)
-        # `@strict` guards `_absorb_spike!`'s call in `lowrankupdate!`: with checks enabled (the
-        # default this suite runs under), the guard's own reflection is real compiled code in
-        # `lowrankupdate!`'s body, so JET reports its internal dispatch as instability and
-        # AllocCheck reports its bookkeeping as allocation. The kernel itself is type-stable and
-        # allocation-free with checks disabled, which is the configuration a shipped build sets.
-        @test_broken (@test_typestable(lowrankupdate!(F, u, v)); true)
-        @test_broken (@test_noalloc(lowrankupdate!(F, u, v)); true)
-        G = UpdatableQR(randn(T, m, n))
-        @test_typestable delete_row!(G, 3)
-        H = UpdatableQR(randn(T, m, n))
+        @test_typestable lowrankupdate!(F, u, v)
         # AllocCheck's all-paths analysis cannot rule out that `w` and `corr` in
         # `_project_residual!` alias: both are SubArrays of the same parametric type over
         # distinct Vector{Float64} storage, and the language gives no way to declare two
         # same-typed arguments non-aliasing to the analyzer. The defensive copy this forces
         # Base's broadcast machinery to consider is never reached at run time, which is what
-        # `@allocated(delete_row!(...)) == 0` in "QR updating allocates nothing after
-        # construction" already proves. `delete_row!` carries no `@strict` guard of its own.
+        # `@allocated(lowrankupdate!(...)) == 0` above already proves.
+        @test_broken (@test_noalloc(lowrankupdate!(F, u, v)); true)
+        G = UpdatableQR(randn(T, m, n))
+        @test_typestable delete_row!(G, 3)
+        H = UpdatableQR(randn(T, m, n))
         @test_broken (@test_noalloc(delete_row!(H, 3)); true)
     end
 end
