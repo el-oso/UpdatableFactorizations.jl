@@ -20,6 +20,9 @@ from a published article, listed below, and each algorithm's docstring cites the
 | QR row insertion | Golub and Van Loan, *Matrix Computations*, 4th edition, section 6.5 |
 | QR row deletion | Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795; Reichel and Gragg, *Algorithm 686: FORTRAN subroutines for updating the QR decomposition*, ACM Transactions on Mathematical Software 16 (1990), 369-377 |
 | Householder QR construction | `LinearAlgebra.qr`, which `qr_householder` calls; no algorithm is implemented here |
+| Blocked Crout Cholesky | Camarero, *Simple, Fast and Practicable Algorithms for Cholesky, LU and QR Decomposition Using Fast Rectangular Matrix Multiplication*, arXiv:1812.02056 (2018), Algorithm 1 |
+| Blocked Crout LU | Camarero, arXiv:1812.02056 (2018), Algorithm 2; the partial-pivoting protocol follows Golub and Van Loan, *Matrix Computations*, 4th edition, section 3.4 |
+| Block classical Gram-Schmidt QR | Camarero, arXiv:1812.02056 (2018), Algorithm 3; the reorthogonalization bound is Giraud, Langou and Rozložník, *The loss of orthogonality in the Gram-Schmidt orthogonalization process*, Computers and Mathematics with Applications 50 (2005), 1069-1075 |
 
 ## Reference implementations consulted
 
