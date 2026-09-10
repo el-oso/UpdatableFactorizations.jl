@@ -222,11 +222,11 @@ qr_cells((2000, 4000), (32, 64, 128, 256))
 nonblas_cells()
 
 meta = Dict{String, Any}(
-    "host" => gethostname(), "julia" => string(VERSION), "blas" => BLAS.get_config() |> string,
+    "julia" => string(VERSION), "blas" => BLAS.get_config() |> string,
     "blas_threads" => BLAS.get_num_threads(), "date" => string(Dates.today()), "rounds" => ROUNDS,
     "rows" => ROWS,
 )
 mkpath(joinpath(@__DIR__, "results"))
-open(joinpath(@__DIR__, "results", "construction-$(gethostname()).json"), "w") do io
+open(joinpath(@__DIR__, "results", "construction.json"), "w") do io
     JSON.print(io, meta)
 end

@@ -42,7 +42,6 @@ Random.seed!(20260908)
 
     path = save_results("probe")
     meta = JSON.parsefile(path)
-    @test meta["host"] == gethostname()
     @test length(meta["rows"]) == 1
     @test meta["rows"][1]["routine"] == "sum"
     rm(path)

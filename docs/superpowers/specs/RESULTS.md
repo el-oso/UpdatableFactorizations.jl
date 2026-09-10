@@ -1,6 +1,6 @@
 # Spike: Camarero (arXiv:1812.02056) Algorithm 1 vs blocked Cholesky
 
-Host: neuromancer (AMD Ryzen AI 7 350, znver5), Julia 1.12.7, OpenBLAS ILP64, BLAS threads = 1,
+Host: AMD Ryzen AI 7 350 (znver5), Julia 1.12.7, OpenBLAS ILP64, BLAS threads = 1,
 governor `powersave`, boost on. **Clock is unpinned on this host — indicative, not gate-authoritative.**
 
 Baselines: `LinearAlgebra.cholesky!` (LAPACK potrf) and `PureBLAS.potrf!`. They tie (1.00x / 1.01x).

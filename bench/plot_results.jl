@@ -13,13 +13,8 @@ const PAGE = joinpath(dirname(@__DIR__), "docs", "src", "benchmarks.md")
 # modification time would make the published page depend on checkout order, since git does not
 # preserve mtimes.
 function recorded(stem)
-    files = filter(f -> startswith(f, stem * "-") && endswith(f, ".json"), readdir(RESULTS))
-    isempty(files) && error("no $stem results in $RESULTS; run the sweep first")
-    length(files) == 1 || error(
-        "$(length(files)) $stem files in $RESULTS ($(join(sort(files), ", "))); commit the gate " *
-            "run's file and delete the exploratory ones"
-    )
-    path = joinpath(RESULTS, only(files))
+    path = joinpath(RESULTS, stem * ".json")
+    isfile(path) || error("no $stem results in $RESULTS; run the sweep first")
     return JSON.parsefile(path)
 end
 
@@ -228,8 +223,8 @@ function main()
         println(io)
         println(io, preamble(lo, hi))
         @printf(
-            io, "Recorded on `%s`, governor `%s`, Julia %s, %s, %d BLAS thread, %s, commit `%s`.\n",
-            meta["host"], meta["governor"], meta["julia"], meta["blas"], meta["blas_threads"],
+            io, "Recorded with governor `%s`, Julia %s, %s, %d BLAS thread, %s, commit `%s`.\n",
+            meta["governor"], meta["julia"], meta["blas"], meta["blas_threads"],
             meta["date"], meta["commit"]
         )
         for (family, title) in ("cholesky" => "Cholesky", "lu" => "LU", "qr" => "QR")

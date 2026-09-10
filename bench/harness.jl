@@ -98,13 +98,13 @@ end
 
 function save_results(stem::AbstractString)
     meta = Dict{String, Any}(
-        "host" => gethostname(), "governor" => governor(), "julia" => string(VERSION),
+        "governor" => governor(), "julia" => string(VERSION),
         "blas" => string(BLAS.get_config()), "blas_threads" => BLAS.get_num_threads(),
         "date" => string(Dates.today()), "commit" => head_commit(), "rows" => copy(ROWS),
     )
     dir = joinpath(@__DIR__, "results")
     mkpath(dir)
-    path = joinpath(dir, "$stem-$(gethostname()).json")
+    path = joinpath(dir, "$stem.json")
     open(io -> JSON.print(io, meta), path, "w")
     println("wrote $path  ($(length(ROWS)) rows)")
     return path

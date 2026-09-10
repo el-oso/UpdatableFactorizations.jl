@@ -119,11 +119,11 @@ shapes = ((400, 50), (800, 100), (2000, 200))
 rows = [cell(m, n, k) for (m, n) in shapes for k in (n ÷ 4, n ÷ 2, n)]
 
 mkpath(joinpath(@__DIR__, "results"))
-open(joinpath(@__DIR__, "results", "givensq_decision-$(gethostname()).json"), "w") do io
+open(joinpath(@__DIR__, "results", "givensq_decision.json"), "w") do io
     JSON.print(
         io,
         Dict{String, Any}(
-            "host" => gethostname(), "julia" => string(VERSION), "date" => string(Dates.today()),
+            "julia" => string(VERSION), "date" => string(Dates.today()),
             "rounds" => ROUNDS,
             "ratio_convention" => "dense_time / givens_time; above 1.00 means GivensQ is faster",
             "rows" => rows,

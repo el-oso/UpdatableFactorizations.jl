@@ -71,10 +71,10 @@ julia --project=bench bench/construct_sweep.jl
 
 This activates the `bench` environment (`JSON`, `ForwardDiff`, plus the standard libraries the
 script uses), pins `BLAS.set_num_threads(1)`, and writes
-`bench/results/construction-<hostname>.json`. The hostname in the filename records where a run
-came from; it is provenance, not a claim that any one machine's numbers are authoritative. At
-the committed sizes (`n` up to 4000, every `s`, plus the non-BLAS cells) and `ROUNDS = 12`, a
-full run takes on the order of 30-45 minutes.
+`bench/results/construction.json`, replacing whatever was there. One file per sweep is committed
+and it is the one the published tables and plots are built from. At the committed sizes (`n` up
+to 4000, every `s`, plus the non-BLAS cells) and `ROUNDS = 12`, a full run takes on the order of
+30-45 minutes.
 
 ## Output
 

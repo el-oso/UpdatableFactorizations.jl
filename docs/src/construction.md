@@ -45,7 +45,7 @@ cleared to keep the factorization's invariants intact.
 
 Every ratio below is candidate speed divided by baseline speed: **above 1.00 is a win, below
 1.00 is a loss.** This is the opposite of the raw numbers stored in
-`bench/results/construction-neuromancer.json`, which record candidate time divided by baseline
+`bench/results/construction.json`, which record candidate time divided by baseline
 time — a ratio above 1.00 there means the candidate took *longer*. Figures here are single-BLAS-
 thread medians from that file.
 

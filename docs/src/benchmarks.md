@@ -33,7 +33,7 @@ construction routines run from 0.51x to 1.61x the speed of
 the blocked LAPACK routine they are compared against, where 1.00 is parity: most of those cells
 are slower and one is faster. See [Construction](@ref) for which routine and why.
 
-Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas64_.so, [LP64] libopenblas.so), 1 BLAS thread, 2026-09-10, commit `f3d1f3b`.
+Recorded with governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas64_.so, [LP64] libopenblas.so), 1 BLAS thread, 2026-09-10, commit `f3d1f3b`.
 
 ## Cholesky
 

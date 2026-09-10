@@ -22,7 +22,7 @@ throughout this plan. That spelling is confirmed against the shipped package in 
 before any QR cell is written, because the milestone that ships it may spell it otherwise.
 M1 has already created `bench/Project.toml`, `bench/construct_sweep.jl`, `bench/README.md` and `bench/results/`.
 
-**Verified against the real comparison packages.** Everything below was run before this plan was written, on `neuromancer`, Julia 1.12.7, against the registered versions named above. The code in the tasks is that code.
+**Verified against the real comparison packages.** Everything below was run before this plan was written, on Julia 1.12.7, against the registered versions named above. The code in the tasks is that code.
 
 - `QRupdatesFast` 1.0.1 wraps **three** `qrupdate-ng` routines, not thirteen: `qrshc!` (QR column shift, via the public `qrshift`/`qrshift!`), `lu1up!` (unpivoted LU rank-1) and `lup1up!` (pivoted LU rank-1). Nothing else in the catalogue has a `QRupdatesFast` comparison.
 - `libqrupdate` calls the **LP64** BLAS interface (`dtrsv_`, `daxpy_`, `drot_`, `dlartg_`). Julia forwards only ILP64 `libopenblas64_` into libblastrampoline, so `lup1up!` and `qrshc!` print `Error: no BLAS/LAPACK library loaded for dtrsv_()` and return silently wrong answers — measured residual 1.1 instead of 3e-16. Forwarding `OpenBLAS32_jll.libopenblas_path` with `clear = false` fixes it and leaves Julia's own ILP64 library in place. `lu1up!` calls no BLAS and is correct either way, which is exactly why this is easy to miss.
