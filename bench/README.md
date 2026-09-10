@@ -1,3 +1,25 @@
+## Reproducing from a fresh checkout
+
+    julia --project=bench bench/setup.jl
+    julia --project=bench bench/construct_sweep.jl
+    julia --project=bench bench/updating_sweep.jl
+    julia --project=bench bench/plot_results.jl
+
+`setup.jl` develops this package into the `bench` environment and instantiates it, which is what
+a checkout with no `bench/Manifest.toml` needs before any sweep can run. The next two scripts
+write JSON under `bench/results/`. The fourth reads only those files and writes the plots and the
+benchmarks page; it never runs a benchmark.
+
+`bench/harness.jl` holds the machinery a sweep shares with the others: a JSON writer that keeps
+every sample rather than a summary, a single-threaded/LP64 BLAS setup, a CPU-governor reader
+recorded into each result file's metadata for provenance (nothing checks its value), and
+`@mutating_bench`/`@pure_bench`, two thin wrappers around `Chairmarks.@be` that always time with
+`evals = 1` and reject a stray positional argument rather than silently timing the wrong
+expression.
+
+`bench/` links `qrupdate-ng` through `QRupdatesFast`, which is GPL-3.0-or-later. That is why the
+comparison lives in this environment and not in the package's.
+
 # Construction benchmark
 
 `construct_sweep.jl` measures `cholesky_crout`, `lu_crout`, and `qr_bcgs` against the
