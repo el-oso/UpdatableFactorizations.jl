@@ -93,6 +93,11 @@ orthogonality. The paper's premise does not survive a blocked BLAS-3 baseline.
 
 The single real gap the spike found is unpivoted LU, where stdlib has no blocked path at all.
 
+These figures describe the paper's algorithms as the spike implemented them, and stay true of
+those. The shipped `qr_bcgs` is faster than this section reports because it builds `R` from the
+projection coefficients rather than from a closing `Q'*A`, which is not part of Algorithm 3. The
+measurements of what ships are in the construction section below.
+
 # Construction layer, measured
 
 Julia 1.12.7, OpenBLAS (`LBTConfig([ILP64] libopenblas64_.so)`), one BLAS thread, 2026-09-09.
@@ -154,32 +159,34 @@ selects the diagonal every time and performs no interchange at all.
 ## QR, relative to LAPACK geqrf plus forming the thin Q
 
     n=2000          s=32    s=64    s=128   s=256
-    reorth=false    0.85    0.88    0.89    0.89
-    reorth=true     0.55    0.58    0.59    0.59
+    reorth=false    1.47    1.57    1.61    1.59
+    reorth=true     0.75    0.81    0.84    0.82
 
     n=4000          s=32    s=64    s=128   s=256
-    reorth=false    0.83    0.88    0.90    0.91
-    reorth=true     0.53    0.58    0.60    0.60
+    reorth=false    1.38    1.57    1.62    1.62
+    reorth=true     0.72    0.81    0.84    0.83
 
-Reorthogonalization costs about 1.5 times, which is the second projection pass.
+`qr_bcgs` without reorthogonalization is faster than the LAPACK pair at every block size and both
+sizes. It builds `R` from the projection coefficients the orthogonalization already produces,
+where forming it as a closing `Q'*A` costs a further 2*m*n^2 and was 44% of the routine.
+Reorthogonalization runs the projection a second time and costs about twice as much, which puts
+that setting below the baseline.
 
-## Non-BLAS element types: blocking does not help
+Reconstruction is better than the baseline's and orthogonality is worse, which is what
+Gram-Schmidt trades:
 
-Each blocked cell is measured against the same routine at `s >= n`, which never flushes and is
-therefore the unblocked left-looking factorization. Higher is better, so below 1.00x means
-blocking made it slower.
+    quantity                    geqrf+formQ   bcgs reorth=false   bcgs reorth=true
+    norm(Q*R - A)/norm(A)       1.2e-15       5.6e-16             6.1e-16
+    norm(Q'Q - I)               1.0e-13       1.7e-12             1.6e-12
 
-    element type            s=16    s=64    stdlib generic
-    BigFloat, n=120         0.48    0.69    0.85
-    Dual{Float64,1}, n=200  0.96    0.99    3.12
+The two `reorth` settings differ little on a well-conditioned random matrix; the setting decides
+orthogonality as the condition number grows, not here. Reconstruction no longer follows
+orthogonality at all: `Q*R` rebuilds `A` from the coefficients that built `Q`, so the residual
+holds near 1e-16 across the conditioning range while `norm(Q'Q - I)` degrades normally.
 
-Blocking is a clear loss for `BigFloat` and neutral for `Dual`. The deferred flush pays only when
-it can hand a block to a BLAS kernel; where `mul!` is itself a scalar loop, deferring the work
-adds buffer traffic and buys nothing. For `Dual` the standard library's generic `cholesky` is
-about three times faster than either setting, so that is the routine to use for that element type.
+## No cell beats blocked LAPACK, except QR
 
-## No cell beats blocked LAPACK
-
-Best figures are 0.92x for Cholesky, 0.89x for pivoted LU, 0.98x for unpivoted LU and 0.91x for
-QR without reorthogonalization. Nothing here is faster than the LAPACK routine it is compared
-against, the unpivoted LU included.
+`qr_bcgs` without reorthogonalization reaches 1.62x. Everything else loses: Cholesky's best is
+0.92x of `potrf`, pivoted LU 0.90x of `getrf`, unpivoted LU 0.98x, and `qr_bcgs` with
+reorthogonalization 0.84x. Substituting a full-block multiply for the symmetric rank-k flush
+costs a further 1.7 to 1.8 times.
