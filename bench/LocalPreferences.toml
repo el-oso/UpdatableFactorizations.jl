@@ -1,0 +1,5 @@
+# Benchmarks measure the bare kernel, matching a shipped build. With checks on, `@strict`'s
+# reflection cost (several kilobytes and a dynamic dispatch per guarded call) would dominate
+# every UpdatableFactorizations cell instead of the verb itself.
+[StrictMode]
+checks_enabled = false
