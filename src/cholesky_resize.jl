@@ -73,56 +73,44 @@ function _append!(F::UpdatableCholesky{T}, x::AbstractVector) where {T}
     return F
 end
 
-# Restore lower-triangular form of `B` by right multiplication with Givens rotations. Entries
-# that are already zero are skipped, so a permutation disturbing only a band costs only that
-# band rather than a full re-triangularization.
-function _lq!(B)
-    n = size(B, 1)
-    for r in 1:n, c in n:-1:(r + 1)
-        iszero(B[r, c]) && continue
-        cc, ss, rr = givensAlgorithm(B[r, c - 1], B[r, c])
-        B[r, c - 1] = rr
-        B[r, c] = zero(eltype(B))
-        for i in (r + 1):n
-            a = B[i, c - 1]
-            b = B[i, c]
-            B[i, c - 1] = cc * a + ss * b
-            B[i, c] = -conj(ss) * a + cc * b
-        end
-    end
-    return B
-end
-
-# Reorder the factored matrix so that index `perm[r]` lands at position `r`. `perm` is consumed.
-function _permute!(F::UpdatableCholesky, perm::AbstractVector{Int})
+# Swap adjacent indices k, k+1 of the factored matrix, restoring lower-triangular form.
+# Swapping rows k and k+1 of L disturbs only entry (k, k+1): row k+1 held the only nonzero
+# entry at column k+1, so it becomes a single superdiagonal entry in row k. One Givens
+# rotation mixing columns k and k+1, applied to every row from k down to n, eliminates it and
+# leaves L lower triangular again. Chaining this over the |i - j| steps between two indices
+# costs O(n) per step, hence O((|i - j| + 1) * n) overall, rather than a full
+# re-triangularization of the whole factor.
+function _adjacent_shift!(F::UpdatableCholesky, k::Int)
     n = F.n
     L = _lower(F)
-    tmp = view(F.work, 1:n)
-    for k in 1:n
-        perm[k] == k && continue
-        for c in 1:n                   # hold row k while its cycle rotates through it
-            tmp[c] = L[k, c]
-        end
-        i = k
-        while perm[i] != k
-            q = perm[i]
-            for c in 1:n
-                L[i, c] = L[q, c]
-            end
-            perm[i] = i
-            i = q
-        end
-        for c in 1:n
-            L[i, c] = tmp[c]
-        end
-        perm[i] = i
+    for c in 1:(k - 1)
+        L[k, c], L[k + 1, c] = L[k + 1, c], L[k, c]
     end
-    _lq!(L)
-    # A Cholesky factor is unique only up to a unit-modulus scaling of each column, and _lq!'s
-    # rotations do not constrain that scaling. Fix it so the diagonal is real and positive:
-    # scaling column k by s = conj(L[k,k])/abs(L[k,k]) leaves L*L' unchanged and makes the
-    # diagonal entry abs(L[k,k]), which is written directly so that it is exactly real.
-    for k in 1:n
+    akk, ak1k, bulge = L[k, k], L[k + 1, k], L[k + 1, k + 1]
+    L[k, k] = ak1k
+    L[k + 1, k] = akk
+    L[k, k + 1] = bulge
+    L[k + 1, k + 1] = zero(eltype(L))
+    cc, ss, rr = givensAlgorithm(L[k, k], L[k, k + 1])
+    L[k, k] = rr
+    L[k, k + 1] = zero(eltype(L))
+    for i in (k + 1):n
+        a = L[i, k]
+        b = L[i, k + 1]
+        L[i, k] = cc * a + ss * b
+        L[i, k + 1] = -conj(ss) * a + cc * b
+    end
+    return F
+end
+
+# A Cholesky factor is unique only up to a unit-modulus scaling of each column, and the
+# rotations in `_adjacent_shift!` do not constrain that scaling. Fix it, over the columns
+# `_adjacent_shift!` touched, so the diagonal is real and positive: scaling column k by
+# s = conj(L[k,k])/abs(L[k,k]) leaves L*L' unchanged and makes the diagonal entry abs(L[k,k]),
+# which is written directly so that it is exactly real.
+function _fixdiag!(L, lo::Int, hi::Int)
+    n = size(L, 1)
+    for k in lo:hi
         dkk = L[k, k]
         iszero(dkk) && continue
         s = conj(dkk) / abs(dkk)
@@ -133,7 +121,7 @@ function _permute!(F::UpdatableCholesky, perm::AbstractVector{Int})
         end
         L[k, k] = abs(dkk)
     end
-    return F
+    return L
 end
 
 # Fill `p` with the permutation that moves the index at position `i` to position `j`, sliding
@@ -159,16 +147,26 @@ end
     shift_columns!(F::UpdatableCholesky, i, j) -> F
 
 Move index `i` to position `j`, sliding the indices between them by one, and update the
-factorization to match. Both the row and the column move, keeping the factored matrix symmetric.
+factorization to match, in `O((|i - j| + 1) * n)` operations. Both the row and the column
+move, keeping the factored matrix symmetric.
 
 Golub and Van Loan, *Matrix Computations*, 4th edition, section 6.5.
 """
 function shift_columns!(F::UpdatableCholesky, i::Integer, j::Integer)
     1 <= i <= F.n || throw(BoundsError(F, i))
     1 <= j <= F.n || throw(BoundsError(F, j))
-    p = view(F.perm, 1:F.n)
-    _cyclicperm!(p, Int(i), Int(j))
-    return _permute!(F, p)
+    ii, jj = Int(i), Int(j)
+    if ii < jj
+        for k in ii:(jj - 1)
+            _adjacent_shift!(F, k)
+        end
+    elseif ii > jj
+        for k in (ii - 1):-1:jj
+            _adjacent_shift!(F, k)
+        end
+    end
+    _fixdiag!(_lower(F), min(ii, jj), max(ii, jj))
+    return F
 end
 
 """
