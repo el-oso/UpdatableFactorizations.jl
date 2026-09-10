@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship `cholesky_crout`, `lu_crout` (unpivoted and partially pivoted) and `qr_bcgs` (rectangular `m >= n`, optional reorthogonalization) — the three blocked left-looking factorizations of Camarero, arXiv:1812.02056 — with the deferred flush exposed as plain `rankk!` and `matmul!` keyword arguments, and settle on a clock-locked host the two ratios the spike never measured.
+**Goal:** Ship `cholesky_crout`, `lu_crout` (unpivoted and partially pivoted) and `qr_bcgs` (rectangular `m >= n`, optional reorthogonalization) — the three blocked left-looking factorizations of Camarero, arXiv:1812.02056 — with the deferred flush exposed as plain `rankk!` and `matmul!` keyword arguments, and settle locally the two ratios the spike never measured.
 
 **Architecture:** Each routine is a column-at-a-time Crout/block-CGS loop that defers the trailing update and flushes it every `s` columns through one substitutable function. There is no abstract type over the flush, no extension, and no plugin registry: `rankk!` and `matmul!` are function-valued keyword arguments whose defaults are `default_rankk!` (BLAS `syrk!`/`herk!`, or a generic `mul!` when the element type is not a BLAS float) and `LinearAlgebra.mul!`. `cholesky_crout` and `lu_crout` hand their finished factors to the standard library's `Cholesky` and `LU` types and let the shipped `UpdatableCholesky(::Cholesky)` and `UpdatableLU(::LU)` constructors do the normalization, so no new struct and no new conversion path is introduced. `qr_bcgs` hands its thin `Q` and its `R` to the shipped `UpdatableQR(Q, R; capacity)` constructor and does the same.
 
@@ -1208,9 +1208,9 @@ Expected: a table prints, every `relerr` is below 1e-13, and a JSON file appears
 
 - [ ] **Step 4: Write `bench/README.md`**
 
-State: what the sweep measures, that it must be run on a clock-locked host, the exact command,
-where the results land, that plots are regenerated from the saved JSON rather than by re-running,
-and that these algorithms are slower than the LAPACK routines they are compared against.
+State: what the sweep measures, the exact command, where the results land, that plots are
+regenerated from the saved JSON rather than by re-running, and that these algorithms are slower
+than the LAPACK routines they are compared against.
 
 - [ ] **Step 5: Commit**
 
@@ -1221,7 +1221,7 @@ git commit -m "Add the construction benchmark sweep"
 
 ---
 
-### Task 10: The R14 gate on a clock-locked host
+### Task 10: The R14 gate
 
 **Files:**
 - Create: `bench/results/construction-<host>.json`
@@ -1231,35 +1231,21 @@ git commit -m "Add the construction benchmark sweep"
 - Consumes: `bench/construct_sweep.jl`
 - Produces: committed datapoints; the two previously unmeasured claims settled
 
-`neuromancer` has an unpinned CPU clock and is never gate-authoritative. Run on `galen` or
-`wintermute`, both clock-locked.
+All benchmark gates run on this development machine. There is no remote benchmark host for this
+project. Every ratio the sweep reports is measured by interleaving both arms within one round, so
+clock drift cancels between them; absolute times and comparisons across separate runs are not
+comparable and never were, regardless of which machine produced them.
 
-- [ ] **Step 1: Sync the working tree to the gate host and verify it**
-
-```bash
-rsync -av --delete --exclude .git /home/el_oso/Documents/claude/UpdatableFactorizations.jl/ galen:~/Documents/claude/UpdatableFactorizations.jl/
-ssh galen 'cd ~/Documents/claude/UpdatableFactorizations.jl && git log --oneline -1 2>/dev/null; md5sum src/construct.jl bench/construct_sweep.jl'
-```
-
-Compare both checksums against the local files before running anything. A stale remote checkout
-silently reproduces the previous numbers.
-
-- [ ] **Step 2: Instantiate and run**
+- [ ] **Step 1: Instantiate and run**
 
 ```bash
-ssh galen 'cd ~/Documents/claude/UpdatableFactorizations.jl && julia --project=bench -e "using Pkg; Pkg.instantiate()"'
-ssh galen 'cd ~/Documents/claude/UpdatableFactorizations.jl && julia --project=bench bench/construct_sweep.jl'
+julia --project=bench -e 'using Pkg; Pkg.instantiate()'
+julia --project=bench bench/construct_sweep.jl
 ```
 
 Leave cores free for other work; the script is single-threaded by construction.
 
-- [ ] **Step 3: Copy the results back and commit them**
-
-```bash
-rsync -av galen:~/Documents/claude/UpdatableFactorizations.jl/bench/results/ /home/el_oso/Documents/claude/UpdatableFactorizations.jl/bench/results/
-```
-
-- [ ] **Step 4: Check the gate**
+- [ ] **Step 2: Check the gate**
 
 The gate passes when all four hold. It is not a speed gate — these algorithms lose — it is a
 reproducibility and accuracy gate:
@@ -1269,21 +1255,21 @@ reproducibility and accuracy gate:
    factorization of a matrix with no diagonal dominance has no stability bound, so its residual
    is recorded and not gated.
 2. Every Float64 ratio against its LAPACK baseline is within 15% of a same-shape re-run of
-   `docs/superpowers/specs/alg1.jl` and `alg23.jl` on the gate host. The comparison is against
-   those scripts and not against `RESULTS.md`, which was measured on an unpinned-clock host and
-   times the bare kernels. `bench/construct_sweep.jl` times the shipped entry points, which also
+   `docs/superpowers/specs/alg1.jl` and `alg23.jl` on this machine. The comparison is against
+   those scripts and not against `RESULTS.md`, which times the bare kernels rather than the
+   shipped entry points. `bench/construct_sweep.jl` times the shipped entry points, which also
    copy `A` into a fresh working array, allocate the factor, and build the `UpdatableCholesky`
    or `UpdatableLU` wrapper around it — that construction overhead is part of what a caller
    pays, so it stays in the timing, and the ratios it produces are expected to sit below the
-   spike's. A cell outside the band against the same-host spike is investigated before the gate
-   is called passed.
+   spike's. A cell outside the band against the same-machine spike is investigated before the
+   gate is called passed.
 3. The unpivoted `lu_crout` versus `lu!(A, NoPivot())` ratio, both on the diagonally dominant
    matrix, is above 10x at both sizes.
 4. The two previously unmeasured cells produce a number, whatever it is.
 
-- [ ] **Step 5: Write the two new results into `RESULTS.md`**
+- [ ] **Step 3: Write the two new results into `RESULTS.md`**
 
-Append a section headed `# M1 gate, <host>, clock locked` containing:
+Append a section headed `# M1 gate, <host>` containing:
 
 - the host, Julia version, BLAS configuration, thread count and date;
 - the pivoted `lu_crout` ratio against `getrf` at both sizes, next to the unpivoted ratio on the
@@ -1296,13 +1282,13 @@ Append a section headed `# M1 gate, <host>, clock locked` containing:
   relative to the `s = n` unblocked cell, and if it does not help, say so;
 - a restatement that no cell beats blocked LAPACK.
 
-Write only what the JSON says. Do not carry a number forward from the earlier unpinned run.
+Write only what the JSON says. Do not carry a number forward from the earlier spike run.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add bench/results docs/superpowers/specs/RESULTS.md
-git commit -m "Record the construction gate on a clock-locked host"
+git commit -m "Record the construction gate"
 ```
 
 ---
