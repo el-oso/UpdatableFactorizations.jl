@@ -50,10 +50,18 @@ end
     )
     script = joinpath(@__DIR__, "strict_gate_subprocess.jl")
     pkgroot = pkgdir(UpdatableFactorizations)
-    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$tmp $script $pkgroot`
+    # `Pkg.test` puts its sandbox on `JULIA_LOAD_PATH`, and a subprocess inheriting that variable
+    # cannot load a standard library: the script's own `using Pkg` fails. Naming the load path
+    # explicitly gives it the temporary project and the standard libraries and nothing else.
+    cmd = addenv(
+        `$(Base.julia_cmd()) --startup-file=no --project=$tmp $script $pkgroot`,
+        "JULIA_LOAD_PATH" => "@:@stdlib"
+    )
     out = IOBuffer()
     err = IOBuffer()
-    proc = run(pipeline(cmd; stdout = out, stderr = err); wait = true)
+    # `ignorestatus` so a nonzero exit returns here instead of throwing: the subprocess's own
+    # stderr is the only account of what went wrong, and an exception raised by `run` discards it.
+    proc = run(pipeline(ignorestatus(cmd); stdout = out, stderr = err); wait = true)
     success(proc) ||
         error("gate subprocess failed (exit $(proc.exitcode)):\n$(String(take!(err)))")
 
