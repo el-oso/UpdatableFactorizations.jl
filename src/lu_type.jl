@@ -15,7 +15,10 @@ throws. An invalid factorization can only be rebuilt, not repaired.
 mutable struct UpdatableLU{T, S <: AbstractMatrix{T}} <: AbstractUpdatableLU{T}
     Lf::S
     d::Vector{T}
-    Uf::S
+    # The transpose of the unit upper triangular factor: `Ut[j, k] == U-factor[k, j]`. Stored
+    # transposed, rather than as the upper triangular factor itself, so that the rank-1 update
+    # kernel indexes it the same way it indexes `Lf` -- down a column, contiguous in memory.
+    Ut::S
     p::Vector{Int}
     work::Vector{T}
     info::Int
@@ -26,15 +29,15 @@ function UpdatableLU(G::LU{T}) where {T}
     Lf = Matrix(UnitLowerTriangular(G.factors))
     U = Matrix(UpperTriangular(G.factors))
     d = T[U[k, k] for k in 1:n]
-    Uf = Matrix{T}(I, n, n)
+    Ut = Matrix{T}(I, n, n)
     for k in 1:n
         iszero(d[k]) && throw(ZeroPivotException(k))
         for j in (k + 1):n
-            Uf[k, j] = U[k, j] / d[k]
+            Ut[j, k] = U[k, j] / d[k]
         end
     end
     # `work` holds both of the rank-1 update's consumed vectors, so the update allocates nothing.
-    return UpdatableLU{T, Matrix{T}}(Lf, d, Uf, collect(G.p), zeros(T, 2n), 0)
+    return UpdatableLU{T, Matrix{T}}(Lf, d, Ut, collect(G.p), zeros(T, 2n), 0)
 end
 
 UpdatableLU(A::AbstractMatrix; pivot = RowMaximum()) = UpdatableLU(lu(A, pivot))
@@ -47,7 +50,7 @@ end
 
 function Base.getproperty(F::UpdatableLU, s::Symbol)
     s === :L && return UnitLowerTriangular(copy(getfield(F, :Lf)))
-    s === :U && return UpperTriangular(getfield(F, :d) .* getfield(F, :Uf))
+    s === :U && return UpperTriangular(getfield(F, :d) .* transpose(getfield(F, :Ut)))
     return getfield(F, s)
 end
 
@@ -74,7 +77,7 @@ function LinearAlgebra.ldiv!(F::UpdatableLU, B::AbstractVecOrMat)
     end
     ldiv!(UnitLowerTriangular(getfield(F, :Lf)), B)
     B ./= getfield(F, :d)
-    ldiv!(UnitUpperTriangular(getfield(F, :Uf)), B)
+    ldiv!(UnitUpperTriangular(transpose(getfield(F, :Ut))), B)
     return B
 end
 

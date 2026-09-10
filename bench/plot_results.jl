@@ -137,12 +137,65 @@ function verdict_row(rows, family, routine)
     return routine, lo, hi, verdict
 end
 
+# The fastest other implementation of the same routine, and how this package's verb compares to it
+# size by size. A verb can beat recomputing everywhere and still trail a specialized library, so
+# the two verdicts are reported side by side rather than leaving the second one to the plots.
+function rival_verdict(rows, family, routine)
+    key = xaxis(family)
+    cells = filter(r -> r["family"] == family && r["routine"] == routine, rows)
+    others = unique(
+        r["variant"] for r in cells
+            if !(r["variant"] in ("recompute", "UpdatableFactorizations"))
+    )
+    isempty(others) && return "-", "no other implementation measured"
+    best = nothing
+    for name in others
+        ratios = Pair{Int, Float64}[]
+        for size in sort(unique(r[key] for r in cells))
+            here = filter(r -> r[key] == size, cells)
+            theirs = filter(r -> r["variant"] == name, here)
+            ours = only(filter(r -> r["variant"] == "UpdatableFactorizations", here))
+            isempty(theirs) && continue
+            push!(ratios, size => speedup(only(theirs), ours))
+        end
+        isempty(ratios) && continue
+        # Rank by the worst showing against that rival, so the hardest comparison is the one told.
+        worst = minimum(last, ratios)
+        (isnothing(best) || worst < best[2]) && (best = (name, worst, ratios))
+    end
+    isnothing(best) && return "-", "no other implementation measured"
+    name, _, ratios = best
+    losses = [size for (size, ratio) in ratios if ratio < 1]
+    lo, hi = extrema(last, ratios)
+    # A comparison that maintains a different amount of the factorization carries that here too,
+    # not only in the detail table: the ratio alone would read as a like-for-like result.
+    caveat = if any(r -> r["variant"] == name && get(r, "r_only", false), cells)
+        " (which maintains `R` only, never `Q`)"
+    elseif any(r -> r["variant"] == name && get(r, "full_q", false), cells)
+        " (which maintains a full `m x m` `Q`)"
+    else
+        ""
+    end
+    text = if isempty(losses)
+        @sprintf("%.2fx-%.2fx faster than `%s`%s", lo, hi, name, caveat)
+    elseif length(losses) == length(ratios)
+        @sprintf("%.2fx-%.2fx of `%s`%s, slower at every %s", lo, hi, name, caveat, key)
+    else
+        @sprintf(
+            "%.2fx-%.2fx of `%s`%s, slower at %s = %s", lo, hi, name, caveat, key,
+            join(string.(losses), ", ")
+        )
+    end
+    return name, text
+end
+
 function verdict_table(io, rows, family)
-    println(io, "| routine | worst | best | verdict |")
-    println(io, "| --- | --- | --- | --- |")
+    println(io, "| routine | worst | best | vs recomputing | vs the fastest other implementation |")
+    println(io, "| --- | --- | --- | --- | --- |")
     for routine in unique(r["routine"] for r in rows if r["family"] == family)
         routine, lo, hi, verdict = verdict_row(rows, family, routine)
-        @printf(io, "| `%s` | %.2fx | %.2fx | %s |\n", routine, lo, hi, verdict)
+        _, rival = rival_verdict(rows, family, routine)
+        @printf(io, "| `%s` | %.2fx | %.2fx | %s | %s |\n", routine, lo, hi, verdict, rival)
     end
     return
 end

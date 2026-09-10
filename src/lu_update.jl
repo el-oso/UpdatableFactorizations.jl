@@ -41,7 +41,7 @@ function LinearAlgebra.lowrankupdate!(
     for i in 1:n
         z[i] = conj(v[iv + i])
     end
-    k = @strict _bennett!(getfield(F, :Lf), getfield(F, :d), getfield(F, :Uf), w, z, one(T), rtol)
+    k = @strict _bennett!(getfield(F, :Lf), getfield(F, :d), getfield(F, :Ut), w, z, one(T), rtol)
     if !iszero(k)
         setfield!(F, :info, k)
         throw(ZeroPivotException(k))
@@ -51,6 +51,8 @@ end
 
 # A + sigma*w*transpose(z), on the LDU form. `w` and `z` are consumed. Returns zero, or the
 # column at which the pivot became too small to continue, leaving the factors partly overwritten.
+# `U` is the transpose of the unit upper triangular factor (`U[j, k] == U-factor[k, j]`), so both
+# loops below walk down a column -- contiguous in a column-major array, like `L`'s own layout.
 function _bennett!(L, d, U, w, z, sigma, rtol)
     n = length(d)
     s = sigma
@@ -67,8 +69,8 @@ function _bennett!(L, d, U, w, z, sigma, rtol)
             L[i, k] += alpha * w[i]
         end
         for j in (k + 1):n
-            z[j] -= zk * U[k, j]
-            U[k, j] += beta * z[j]
+            z[j] -= zk * U[j, k]
+            U[j, k] += beta * z[j]
         end
         s = s * d[k] / dnew
         d[k] = dnew

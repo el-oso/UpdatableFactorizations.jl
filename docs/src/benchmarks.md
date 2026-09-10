@@ -39,14 +39,14 @@ Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64]
 
 ![Cholesky updating](assets/bench-cholesky.svg)
 
-| routine | worst | best | verdict |
-| --- | --- | --- | --- |
-| `lowrankupdate!` | 6.34x | 44.56x | wins at every n measured |
-| `lowrankdowndate!` | 3.15x | 29.47x | wins at every n measured |
-| `delete_column!` | 1.72x | 5.86x | wins at every n measured |
-| `append_column!` | 7.26x | 13.40x | wins at every n measured |
-| `insert_column!` | 2.55x | 8.26x | wins at every n measured |
-| `shift_columns!` | 4.04x | 18.87x | wins at every n measured |
+| routine | worst | best | vs recomputing | vs the fastest other implementation |
+| --- | --- | --- | --- | --- |
+| `lowrankupdate!` | 6.34x | 44.56x | wins at every n measured | 1.18x-2.74x faster than `LinearAlgebra` |
+| `lowrankdowndate!` | 3.15x | 29.47x | wins at every n measured | 1.05x-2.49x faster than `LinearAlgebra` |
+| `delete_column!` | 1.72x | 5.86x | wins at every n measured | 3.06x-5.34x faster than `UpdatableCholeskyFactorizations` |
+| `append_column!` | 7.26x | 13.40x | wins at every n measured | 0.08x-0.78x of `UpdatableCholeskyFactorizations`, slower at every n |
+| `insert_column!` | 2.55x | 8.26x | wins at every n measured | no other implementation measured |
+| `shift_columns!` | 4.04x | 18.87x | wins at every n measured | no other implementation measured |
 
 | operation | n | implementation | median | vs recomputing | notes |
 | --- | --- | --- | --- | --- | --- |
@@ -135,10 +135,10 @@ Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64]
 
 ![LU updating](assets/bench-lu.svg)
 
-| routine | worst | best | verdict |
-| --- | --- | --- | --- |
-| `lowrankupdate! nopivot` | 11.58x | 38.00x | wins at every n measured |
-| `lowrankupdate! pivoted` | 1.58x | 8.39x | wins at every n measured |
+| routine | worst | best | vs recomputing | vs the fastest other implementation |
+| --- | --- | --- | --- | --- |
+| `lowrankupdate! nopivot` | 11.58x | 38.00x | wins at every n measured | 0.29x-2.97x of `QRupdatesFast`, slower at n = 256, 512, 1024 |
+| `lowrankupdate! pivoted` | 1.58x | 8.39x | wins at every n measured | 2.14x-5.39x faster than `QRupdatesFast` |
 
 | operation | n | implementation | median | vs recomputing | notes |
 | --- | --- | --- | --- | --- | --- |
@@ -177,14 +177,14 @@ Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64]
 
 ![QR updating](assets/bench-qr.svg)
 
-| routine | worst | best | verdict |
-| --- | --- | --- | --- |
-| `lowrankupdate!` | 3.14x | 6.75x | wins at every m measured |
-| `insert_column!` | 12.59x | 20.40x | wins at every m measured |
-| `delete_column!` | 7.95x | 15.67x | wins at every m measured |
-| `shift_columns!` | 8.96x | 16.39x | wins at every m measured |
-| `insert_row!` | 9.72x | 13.14x | wins at every m measured |
-| `delete_row!` | 5.34x | 9.02x | wins at every m measured |
+| routine | worst | best | vs recomputing | vs the fastest other implementation |
+| --- | --- | --- | --- | --- |
+| `lowrankupdate!` | 3.14x | 6.75x | wins at every m measured | no other implementation measured |
+| `insert_column!` | 12.59x | 20.40x | wins at every m measured | 0.41x-1.35x of `QRupdate` (which maintains `R` only, never `Q`), slower at m = 1024, 2048 |
+| `delete_column!` | 7.95x | 15.67x | wins at every m measured | 0.55x-1.13x of `QRupdate` (which maintains `R` only, never `Q`), slower at m = 256 |
+| `shift_columns!` | 8.96x | 16.39x | wins at every m measured | 0.34x-0.49x of `QRupdatesFast`, slower at every m |
+| `insert_row!` | 9.72x | 13.14x | wins at every m measured | 1.31x-2.74x faster than `QRupdate` (which maintains `R` only, never `Q`) |
+| `delete_row!` | 5.34x | 9.02x | wins at every m measured | no other implementation measured |
 
 | operation | m | implementation | median | vs recomputing | notes |
 | --- | --- | --- | --- | --- | --- |

@@ -166,13 +166,15 @@ _pivotrow(pivot, col) = throw(
 )
 
 # Core Crout LU loop shared by `lu_crout` and `lu_crout!`. `M` is the n x n working matrix,
-# consumed and overwritten with the trailing Schur complement at each flush; `L` and `U` are the
-# n x n destinations, with only entries where row >= column (`L`) or row <= column (`U`) written;
-# `p` is filled with the pivot permutation, maintained directly by applying each row
+# consumed and overwritten with the trailing Schur complement at each flush; `L` is the n x n
+# destination with only entries where row >= column written; `Ut` is the n x n destination for
+# the transpose of the upper triangular factor (`Ut[j, k] == U-factor[k, j]`), with only entries
+# where row >= column written -- the same convention as `L`, so both fill contiguously down a
+# column; `p` is filled with the pivot permutation, maintained directly by applying each row
 # interchange to it as the interchange happens, rather than recorded as a separate encoding and
 # composed into a permutation afterward.
 function _lu_crout_kernel!(
-        M::AbstractMatrix{T}, L, U, p::AbstractVector{Int}, n::Int, s::Int,
+        M::AbstractMatrix{T}, L, Ut, p::AbstractVector{Int}, n::Int, s::Int,
         pivot, rtol::Real, matmul!
     ) where {T}
     for i in 1:n
@@ -181,12 +183,14 @@ function _lu_crout_kernel!(
     z = 1
     @views for c in 1:n
         if c == z + s
-            matmul!(M[c:n, c:n], L[c:n, z:(c - 1)], U[z:(c - 1), c:n], -one(T), one(T))
+            matmul!(
+                M[c:n, c:n], L[c:n, z:(c - 1)], transpose(Ut[c:n, z:(c - 1)]), -one(T), one(T)
+            )
             z = c
         end
         col = L[c:n, c]
         copyto!(col, M[c:n, c])
-        c > z && matmul!(col, L[c:n, z:(c - 1)], U[z:(c - 1), c], -one(T), one(T))
+        c > z && matmul!(col, L[c:n, z:(c - 1)], Ut[c, z:(c - 1)], -one(T), one(T))
         pv = c + _pivotrow(pivot, col) - 1
         if pv != c
             # The swaps need an explicit temporary: `@views` rewrites an indexed left-hand side
@@ -209,20 +213,19 @@ function _lu_crout_kernel!(
         Lcc = L[c, c]
         (iszero(Lcc) || abs(Lcc) <= rtol * norm(col)) && throw(ZeroPivotException(c))
         if c < n
-            row = U[c, (c + 1):n]
-            copyto!(row, M[c, (c + 1):n])
-            c > z &&
-                matmul!(row, transpose(U[z:(c - 1), (c + 1):n]), L[c, z:(c - 1)], -one(T), one(T))
-            row ./= Lcc
+            col2 = Ut[(c + 1):n, c]
+            copyto!(col2, M[c, (c + 1):n])
+            c > z && matmul!(col2, Ut[(c + 1):n, z:(c - 1)], L[c, z:(c - 1)], -one(T), one(T))
+            col2 ./= Lcc
         end
     end
     return nothing
 end
 
 # Divide the raw Crout factor's diagonal out into `d` and set it to one, turning `L` into the
-# unit lower triangular factor `UpdatableLU` stores. `U` needs no equivalent step: it is already
-# unit upper triangular, since its diagonal starts at one and the loop above only ever writes
-# its strictly upper entries.
+# unit lower triangular factor `UpdatableLU` stores. `Ut` needs no equivalent step: it is already
+# unit lower triangular, since its diagonal starts at one and the loop above only ever writes
+# its strictly lower entries.
 function _lu_finish!(L, d::AbstractVector{T}, n::Int) where {T}
     for j in 1:n
         d[j] = L[j, j]
@@ -264,13 +267,13 @@ function lu_crout(
     M = Matrix{T}(undef, n, n)
     copyto!(M, A)
     L = zeros(T, n, n)
-    U = Matrix{T}(I, n, n)
+    Ut = Matrix{T}(I, n, n)
     p = Vector{Int}(undef, n)
-    _lu_crout_kernel!(M, L, U, p, n, s, pivot, rtol, matmul!)
+    _lu_crout_kernel!(M, L, Ut, p, n, s, pivot, rtol, matmul!)
     d = Vector{T}(undef, n)
     _lu_finish!(L, d, n)
     # `work` holds both of the rank-1 update's consumed vectors, so the update allocates nothing.
-    return UpdatableLU{T, Matrix{T}}(L, d, U, p, zeros(T, 2n), 0)
+    return UpdatableLU{T, Matrix{T}}(L, d, Ut, p, zeros(T, 2n), 0)
 end
 
 """
@@ -302,11 +305,11 @@ function lu_crout!(
     ntarget = size(F, 1)
     ntarget == n || throw(ArgumentError(lazy"capacity $ntarget is below the size $n"))
     L = getfield(F, :Lf)
-    U = getfield(F, :Uf)
+    Ut = getfield(F, :Ut)
     d = getfield(F, :d)
     p = getfield(F, :p)
     try
-        _lu_crout_kernel!(A, L, U, p, n, s, pivot, rtol, matmul!)
+        _lu_crout_kernel!(A, L, Ut, p, n, s, pivot, rtol, matmul!)
     catch e
         e isa ZeroPivotException && setfield!(F, :info, e.info)
         rethrow()

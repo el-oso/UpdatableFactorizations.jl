@@ -16,7 +16,7 @@ end
 # fields with getfield to avoid reassembling those matrices on every check.
 @invariants UpdatableLU begin
     "factors agree in size" =>
-        F -> length(getfield(F, :d)) == size(getfield(F, :Lf), 1) == size(getfield(F, :Uf), 1)
+        F -> length(getfield(F, :d)) == size(getfield(F, :Lf), 1) == size(getfield(F, :Ut), 1)
     # p is a dense 1-based LAPACK pivot vector, so comparing against the literal range 1:n
     # is the permutation check itself, not a stand-in for iterating p's own indices.
     "p is a permutation" => F -> sort(getfield(F, :p)) == 1:length(getfield(F, :d)) # noidiom
@@ -24,8 +24,8 @@ end
         F -> length(getfield(F, :work)) >= 2length(getfield(F, :d))
     "Lf is unit lower triangular" =>
         F -> getfield(F, :Lf) == UnitLowerTriangular(getfield(F, :Lf))
-    "Uf is unit upper triangular" =>
-        F -> getfield(F, :Uf) == UnitUpperTriangular(getfield(F, :Uf))
+    "Ut is unit lower triangular" =>
+        F -> getfield(F, :Ut) == UnitLowerTriangular(getfield(F, :Ut))
 end
 
 @invariants UpdatableQR begin
