@@ -8,12 +8,13 @@
         @test norm(A' * A - I) > 1
         for j in 1:n
             F = UpdatableQR(A)
-            # Poison storage outside the active block before deleting: `delete_column!` must
-            # re-establish the zero invariant itself, not rely on it already holding.
+            # Poison Q's spare storage before deleting: `delete_column!` must re-establish the
+            # zero invariant there itself, not rely on it already holding. R's spare storage is
+            # not poisoned: the column this call vacates is part of the active factorization
+            # until the call runs, so corrupting it here would corrupt the reconstruction below
+            # rather than test the invariant; its genuine post-call leftover already exercises
+            # the same clearing.
             Qbefore = getfield(F, :qrep)
-            Rbefore = getfield(F, :factors)
-            fill!(view(Rbefore, (F.n + 1):size(Rbefore, 1), :), T(77))
-            fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), T(77))
             fill!(view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)), T(88))
             delete_column!(F, j)
             keep = setdiff(1:n, j)
@@ -90,7 +91,7 @@ end
     end
 end
 
-@testitem "QR column shifting re-zeroes poisoned spare storage" begin
+@testitem "QR column shifting leaves storage outside the active block untouched" begin
     using LinearAlgebra, Random
 
     Random.seed!(20260908)
@@ -98,22 +99,35 @@ end
         A = randn(T, m, n)
         for i in 1:n, j in 1:n
             F = UpdatableQR(A)
-            # Poison storage outside the active block before shifting: `shift_columns!` must
-            # re-establish the zero invariant itself, not rely on it already holding.
+            # `n` never changes, `_retriangularize!` rotates only within R's active n x n block
+            # and, through `rmul!`, only Q's active columns, and nothing here ever reaches
+            # Q's spare storage or R's storage deeper than its spare column: poison it and
+            # confirm the call never reads or writes it. `hold` (R's spare column, rows 1:n) is
+            # the one exception: when `i != j` it is genuinely written, re-zeroed by its own
+            # loop regardless of what it held; the `i == j` no-op skips that loop entirely, so
+            # it stays untouched too.
             Qbefore = getfield(F, :qrep)
             Rbefore = getfield(F, :factors)
             fill!(view(Rbefore, (F.n + 1):size(Rbefore, 1), :), T(77))
             fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), T(77))
             fill!(view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)), T(88))
-            @test any(!iszero, view(Rbefore, (F.n + 1):size(Rbefore, 1), :))
-            @test any(!iszero, view(Rbefore, :, (F.n + 1):size(Rbefore, 2)))
-            @test any(!iszero, view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)))
+            Rpoisoned = copy(Rbefore)
+            Qpoisoned = copy(Qbefore.buf)
             shift_columns!(F, i, j)
             Q = getfield(F, :qrep)
             R = getfield(F, :factors)
-            @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
-            @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
-            @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+            if i != j
+                @test all(iszero, view(R, 1:F.n, F.n + 1))
+                @test view(R, :, (F.n + 2):size(R, 2)) ==
+                    view(Rpoisoned, :, (F.n + 2):size(Rpoisoned, 2))
+            else
+                @test view(R, :, (F.n + 1):size(R, 2)) ==
+                    view(Rpoisoned, :, (F.n + 1):size(Rpoisoned, 2))
+            end
+            @test view(R, (F.n + 1):size(R, 1), :) ==
+                view(Rpoisoned, (F.n + 1):size(Rpoisoned, 1), :)
+            @test view(Q.buf, :, (F.n + 1):size(Q.buf, 2)) ==
+                view(Qpoisoned, :, (F.n + 1):size(Qpoisoned, 2))
         end
     end
 end
@@ -225,16 +239,15 @@ end
     end
     for (T, A, u, v) in cases
         F = UpdatableQR(A)
-        # Poison storage outside the active block before updating: `lowrankupdate!` must
-        # re-establish the zero invariant itself, not rely on it already holding.
+        # Poison Q's augmentation column, over its active rows, before updating: `lowrankupdate!`
+        # must re-establish the zero invariant there itself, not rely on it already holding.
+        # Rows beyond F.m are left alone: `m` never changes here, so that range is never read or
+        # written. R's spare storage is not poisoned either: `_absorb_spike!`'s
+        # retriangularization leaves R's augmented row exactly zero on its own, so it is never
+        # dirtied in the first place.
         Qbefore = getfield(F, :qrep)
-        Rbefore = getfield(F, :factors)
-        fill!(view(Rbefore, (F.n + 1):size(Rbefore, 1), :), T(77))
-        fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), T(77))
-        fill!(view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)), T(88))
-        @test any(!iszero, view(Rbefore, (F.n + 1):size(Rbefore, 1), :))
-        @test any(!iszero, view(Rbefore, :, (F.n + 1):size(Rbefore, 2)))
-        @test any(!iszero, view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)))
+        fill!(view(Qbefore.buf, 1:F.m, F.n + 1), T(88))
+        @test any(!iszero, view(Qbefore.buf, 1:F.m, F.n + 1))
         lowrankupdate!(F, u, v)
         Q = getfield(F, :qrep)
         R = getfield(F, :factors)
@@ -529,7 +542,7 @@ end
     @test_throws "the factorization requires m >= n" insert_column!(G, 1, zeros(4))
 end
 
-@testitem "QR column insertion re-zeroes poisoned spare storage" begin
+@testitem "QR column insertion leaves deeper spare storage untouched" begin
     using LinearAlgebra, Random
 
     Random.seed!(20260908)
@@ -539,24 +552,36 @@ end
         x = randn(m)
         Afull = j == n + 1 ? hcat(A, x) : hcat(A[:, 1:1], x, A[:, 2:n])
         F = UpdatableQR(A; capacity = (m, 2n))
-        # Poison storage outside the active block before inserting: `insert_column!` must
-        # re-establish the zero invariant itself, not rely on it already holding. Row and column
-        # `F.n + 1` are left alone: that is the augmentation slot the algorithm both reads as a
-        # precondition and writes as its result, not dead space it is responsible for clearing.
+        # Column/row F.n + 2 is deeper than the augmentation slot this call writes into, which
+        # becomes active column F.n + 1 once the insertion completes: poison it and confirm the
+        # call never reaches that far, since growing into the new column and row moves only into
+        # storage the invariant already guaranteed was zero. A position that requires a shift
+        # routes through `shift_columns!` after growing, which clears rows `1:F.n` of what is
+        # now its own spare column -- physically the same column just poisoned -- as part of its
+        # own bookkeeping (see "QR column shifting leaves storage outside the active block
+        # untouched"); appending skips that call entirely, so nothing there is touched at all.
         Rbefore = getfield(F, :factors)
         Qbefore = getfield(F, :qrep)
         fill!(view(Rbefore, (F.n + 2):size(Rbefore, 1), :), 77.0)
         fill!(view(Rbefore, :, (F.n + 2):size(Rbefore, 2)), 77.0)
         fill!(view(Qbefore.buf, :, (F.n + 2):size(Qbefore.buf, 2)), 88.0)
-        @test any(!iszero, view(Rbefore, (F.n + 2):size(Rbefore, 1), :))
-        @test any(!iszero, view(Rbefore, :, (F.n + 2):size(Rbefore, 2)))
-        @test any(!iszero, view(Qbefore.buf, :, (F.n + 2):size(Qbefore.buf, 2)))
+        Rpoisoned = copy(Rbefore)
+        Qpoisoned = copy(Qbefore.buf)
         insert_column!(F, j, x)
         R = getfield(F, :factors)
         Q = getfield(F, :qrep)
-        @test all(iszero, view(R, (F.n + 1):size(R, 1), :))
-        @test all(iszero, view(R, :, (F.n + 1):size(R, 2)))
-        @test all(iszero, view(Q.buf, :, (F.n + 1):size(Q.buf, 2)))
+        if j == n + 1
+            @test view(R, :, (F.n + 1):size(R, 2)) ==
+                view(Rpoisoned, :, (F.n + 1):size(Rpoisoned, 2))
+        else
+            @test all(iszero, view(R, 1:F.n, F.n + 1))
+            @test view(R, :, (F.n + 2):size(R, 2)) ==
+                view(Rpoisoned, :, (F.n + 2):size(Rpoisoned, 2))
+        end
+        @test view(R, (F.n + 1):size(R, 1), :) ==
+            view(Rpoisoned, (F.n + 1):size(Rpoisoned, 1), :)
+        @test view(Q.buf, :, (F.n + 1):size(Q.buf, 2)) ==
+            view(Qpoisoned, :, (F.n + 1):size(Qpoisoned, 2))
         @test norm(F.Q * F.R - Afull) / norm(Afull) < 1.0e-12
         @test norm(F.Q' * F.Q - I) < 1.0e-12
     end
@@ -777,19 +802,16 @@ end
     i = 3
     A = randn(m, n)
     F = UpdatableQR(A)
-    # Poison storage strictly beyond row/column n+1: row n+1 of R is live working space for
-    # this verb (it ends the call holding the deleted row of A's coefficients before being
-    # re-zeroed), so only what is deeper than that is dead space the call must clear itself.
-    # Q's row dimension has no such distinction to poison here: `_deleterow!` owns clearing the
-    # single vacated row, and nothing in this verb ever touches a row beyond it.
-    Rbefore = getfield(F, :factors)
+    # Poison Q's augmentation column, over the rows active before the call: `delete_row!` builds
+    # the deleted row's orthogonal complement there and must re-establish the zero invariant
+    # afterward, not rely on it already holding. Rows beyond `m` are left alone: this verb never
+    # reads or writes there. R's row n+1 is not poisoned: it is live working space this verb
+    # reads during its rotation sweep (mixing it into the active rows of R), so corrupting it
+    # here would corrupt the reconstruction below rather than test the invariant; its genuine
+    # post-call leftover already exercises the same clearing.
     Qbefore = getfield(F, :qrep)
-    fill!(view(Rbefore, (F.n + 2):size(Rbefore, 1), :), 77.0)
-    fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), 77.0)
-    fill!(view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)), 88.0)
-    @test any(!iszero, view(Rbefore, (F.n + 2):size(Rbefore, 1), :))
-    @test any(!iszero, view(Rbefore, :, (F.n + 1):size(Rbefore, 2)))
-    @test any(!iszero, view(Qbefore.buf, :, (F.n + 1):size(Qbefore.buf, 2)))
+    fill!(view(Qbefore.buf, 1:m, F.n + 1), 88.0)
+    @test any(!iszero, view(Qbefore.buf, 1:m, F.n + 1))
     delete_row!(F, i)
     R = getfield(F, :factors)
     Q = getfield(F, :qrep)
@@ -843,7 +865,7 @@ end
     end
 end
 
-@testitem "QR row insertion re-zeroes poisoned spare storage" begin
+@testitem "QR row insertion clears its augmentation column, growing and non-growing" begin
     using LinearAlgebra, Random
 
     Random.seed!(20260908)
@@ -854,17 +876,11 @@ end
         A = Afull[setdiff(1:(m + 1), i), :]
         x = Afull[i, :]
         F = UpdatableQR(A; capacity = cap)
-        # Poison storage beyond what this call reads and writes: row `n + 1` of R at columns
-        # `1:n` is live working space here, not dead space the call is responsible for
-        # clearing, so it is left alone.
-        Rbefore = getfield(F, :factors)
-        Qbefore = getfield(F, :qrep)
-        fill!(view(Rbefore, (F.n + 2):size(Rbefore, 1), :), 77.0)
-        fill!(view(Rbefore, :, (F.n + 1):size(Rbefore, 2)), 77.0)
-        fill!(view(Qbefore.buf, :, (F.n + 2):size(Qbefore.buf, 2)), 88.0)
-        @test any(!iszero, view(Rbefore, (F.n + 2):size(Rbefore, 1), :))
-        @test any(!iszero, view(Rbefore, :, (F.n + 1):size(Rbefore, 2)))
-        @test any(!iszero, view(Qbefore.buf, :, (F.n + 2):size(Qbefore.buf, 2)))
+        # No poisoning is needed to exercise the clearing: `_insertrow!` re-zeroes Q's
+        # augmentation column unconditionally on entry regardless of what it held, and the
+        # rotation sweep that follows fills it with genuine nonzero rotation mass for a generic
+        # `x`, which is exactly what this call must clear again before returning. Growth
+        # discards the old buffer entirely, so poisoning it beforehand would test nothing.
         insert_row!(F, i, x)
         R = getfield(F, :factors)
         Q = getfield(F, :qrep)

@@ -38,11 +38,10 @@ function delete_column!(F::UpdatableQR{T, S, <:DenseQ}, j::Integer) where {T, S}
     n == 1 || _retriangularize!(view(R, 1:n, 1:(n - 1)), q)
     _dropcolumn!(q)
     F.n = n - 1
-    # Re-establish zero storage outside the new active block, mirroring what `_dropcolumn!`
-    # does for Q: nothing above assumes the vacated column or the trailing region was already
-    # zero.
-    fill!(view(R, (F.n + 1):size(R, 1), :), zero(T))
-    fill!(view(R, :, (F.n + 1):size(R, 2)), zero(T))
+    # Column n of R still holds its pre-shift values: the loop above never writes to it, and
+    # `_retriangularize!` operates only on columns 1:(n-1). It is now the vacated column, so it
+    # is the one piece of R this call must zero; `_dropcolumn!` already re-zeroes Q's side.
+    fill!(view(R, 1:n, n), zero(T))
     return F
 end
 
@@ -84,12 +83,11 @@ function shift_columns!(F::UpdatableQR{T, S, <:DenseQ}, i::Integer, j::Integer) 
         end
         _retriangularize!(view(R, 1:n, 1:n), q)
     end
-    # Re-establish zero storage outside the active block: `n` does not change here, so nothing
-    # above assumes the spare column, spare row, or Q's trailing columns were already zero, and
-    # the invariant must hold whether or not `i == j` skipped the shift itself.
-    fill!(view(R, (n + 1):size(R, 1), :), zero(T))
-    fill!(view(R, :, (n + 1):size(R, 2)), zero(T))
-    fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
+    # `n` is unchanged, so nothing outside the active block needs to move. `hold` is `R`'s
+    # spare column and is re-zeroed by the loop above; `_retriangularize!` rotates only within
+    # `R`'s active n x n block and, through `rmul!`, only `q`'s active columns, so neither
+    # touches R's spare row/column or Q's spare column. Skipping the shift when `i == j` leaves
+    # both untouched a fortiori.
     return F
 end
 
@@ -168,13 +166,12 @@ function delete_row!(
     end
     _deleterow!(q, Int(i))
     F.m = m - 1
-    # Re-establish zero storage outside the active block: row n+1 of R held the coefficients of
-    # the deleted row as working space, and nothing above assumes it, R's spare columns, or Q's
-    # spare columns were already zero on entry.
+    # Row n+1 of R held the coefficients of the deleted row as working space, at columns 1:n;
+    # the loop above never clears it (it clears columns of Q, not this row of R), so it is the
+    # one piece of R this call must zero. `_deleterow!` already re-zeroes Q's vacated row and
+    # its spare column.
     Rfull = getfield(F, :factors)
-    fill!(view(Rfull, (n + 1):size(Rfull, 1), :), zero(T))
-    fill!(view(Rfull, :, (n + 1):size(Rfull, 2)), zero(T))
-    fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
+    fill!(view(Rfull, n + 1, 1:n), zero(T))
     return F
 end
 
@@ -320,13 +317,10 @@ function LinearAlgebra.lowrankupdate!(
     end
 
     @strict _absorb_spike!(RA, z, q, v, iv, n, last)
-    # Re-establish zero storage outside the active block: the augmentation column of `q` and
-    # row `n + 1` of `R` are working space this verb writes into, and nothing above assumes
-    # they were already clean on entry.
-    Rfull = getfield(F, :factors)
-    fill!(view(Rfull, (n + 1):size(Rfull, 1), :), zero(T))
-    fill!(view(Rfull, :, (n + 1):size(Rfull, 2)), zero(T))
-    fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
+    # `_absorb_spike!`'s retriangularization leaves R's augmented row exactly zero (it is what
+    # that elimination computes), so only Q's augmentation column carries leftover rotation
+    # mass; `n` and `m` are unchanged, so it is the only piece of storage this call must zero.
+    fill!(view(q.buf, 1:m, n + 1), zero(T))
     return F
 end
 
@@ -396,11 +390,8 @@ function insert_column!(
     F.n = n + 1
     q.n = n + 1
     j != n + 1 && return shift_columns!(F, n + 1, Int(j))
-    # `shift_columns!` re-establishes the zero invariant beyond the (new) active block on the
-    # path above; appending at the end takes no such call, so it must do so itself here.
-    fill!(view(R, (F.n + 1):size(R, 1), :), zero(T))
-    fill!(view(R, :, (F.n + 1):size(R, 2)), zero(T))
-    fill!(view(q.buf, :, (F.n + 1):size(q.buf, 2)), zero(T))
+    # Growing into the new column and row moves into storage the invariant already guaranteed
+    # was zero, so appending at the end leaves nothing outside the active block to clear.
     return F
 end
 
@@ -446,11 +437,10 @@ function insert_row!(
         R[n + 1, k] = zero(T)
     end
     F.m = m + 1
-    # Re-establish zero storage outside the active block: `n` does not change here, so
-    # nothing above assumes Q's trailing columns or R's spare row and column were already
-    # zero.
-    fill!(view(R, (n + 1):size(R, 1), :), zero(T))
-    fill!(view(R, :, (n + 1):size(R, 2)), zero(T))
-    fill!(view(q.buf, :, (n + 1):size(q.buf, 2)), zero(T))
+    # The loop above zeroes R[n+1,k] as it clears each entry, so R's spare row and column are
+    # already clean; `_insertrow!` and `_spare(q)[i] = one(T)` build the augmentation direction
+    # in Q's spare column, and the rotations mix it across Q's active columns, leaving that
+    # column the one piece of storage this call must zero.
+    fill!(view(q.buf, 1:F.m, n + 1), zero(T))
     return F
 end

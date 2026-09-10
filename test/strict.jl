@@ -176,6 +176,83 @@ end
     @test behavior_passes(UpdatableQR, [F])
 end
 
+@testitem "QR factorization invariants hold across a long mixed sequence of verbs" begin
+    using LinearAlgebra, Random, Test
+    using UpdatableFactorizations: TypeContracts
+    using .TypeContracts: behavior_passes
+
+    # A stale, uncleared byte in one verb's vacated storage is invisible to a test that only
+    # exercises that verb once: the next verb to grow into the same storage is what would turn
+    # it into a wrong factorization, and only a long sequence that shrinks and regrows both
+    # dimensions repeatedly, in varying order, can expose that.
+    Random.seed!(20260908)
+    shiftperm(n, i, j) = (p = collect(1:n); deleteat!(p, i); insert!(p, j, i); p)
+
+    Aref = randn(10, 4)
+    F = UpdatableQR(Aref; capacity = (10, 4))   # tight capacity: the first two verbs must grow it
+
+    function checkstate(F, Aref)
+        @test behavior_passes(UpdatableQR, [F])
+        @test norm(F.Q * F.R - Aref) / norm(Aref) < 1.0e-10
+    end
+    checkstate(F, Aref)
+
+    x = randn(size(Aref, 1))                                    # grow n past capacity
+    Aref = hcat(Aref[:, 1:2], x, Aref[:, 3:end])
+    insert_column!(F, 3, x)
+    checkstate(F, Aref)
+
+    row = randn(F.n)                                            # grow m past capacity
+    Aref = vcat(Aref[1:4, :], row', Aref[5:end, :])
+    insert_row!(F, 5, row)
+    checkstate(F, Aref)
+
+    u, v = randn(F.m), randn(F.n)
+    Aref = Aref + u * v'
+    lowrankupdate!(F, u, v)
+    checkstate(F, Aref)
+
+    Aref = Aref[:, shiftperm(size(Aref, 2), 1, 4)]
+    shift_columns!(F, 1, 4)
+    checkstate(F, Aref)
+
+    Aref = Aref[setdiff(1:size(Aref, 1), 7), :]                 # shrink m
+    delete_row!(F, 7)
+    checkstate(F, Aref)
+
+    Aref = Aref[:, shiftperm(size(Aref, 2), 4, 2)]
+    shift_columns!(F, 4, 2)
+    checkstate(F, Aref)
+
+    x2 = randn(size(Aref, 1))                                   # regrow n
+    Aref = hcat(x2, Aref)
+    insert_column!(F, 1, x2)
+    checkstate(F, Aref)
+
+    Aref = Aref[:, setdiff(1:size(Aref, 2), 3)]                 # shrink n
+    delete_column!(F, 3)
+    checkstate(F, Aref)
+
+    row2 = randn(F.n)                                           # regrow m
+    i = F.m + 1
+    Aref = vcat(Aref, row2')
+    insert_row!(F, i, row2)
+    checkstate(F, Aref)
+
+    u2, v2 = randn(F.m), randn(F.n)
+    Aref = Aref + u2 * v2'
+    lowrankupdate!(F, u2, v2)
+    checkstate(F, Aref)
+
+    Aref = Aref[:, setdiff(1:size(Aref, 2), 1)]                 # shrink n again
+    delete_column!(F, 1)
+    checkstate(F, Aref)
+
+    Aref = Aref[setdiff(1:size(Aref, 1), 1), :]                 # shrink m again
+    delete_row!(F, 1)
+    checkstate(F, Aref)
+end
+
 @testitem "QR updating allocates nothing after construction" begin
     using LinearAlgebra, Random, Test
 
