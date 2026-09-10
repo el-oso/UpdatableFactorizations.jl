@@ -17,6 +17,14 @@ Every routine's provenance — the paper it derives from, and the reference
 implementations consulted during development — is recorded on the
 [provenance page](https://el-oso.github.io/UpdatableFactorizations.jl/dev/provenance).
 
+Measured comparisons against `LinearAlgebra`, `QRupdate.jl`,
+`UpdatableQRFactorizations.jl`, `UpdatableCholeskyFactorizations.jl`, the
+`qrupdate-ng` wrapper `QRupdatesFast.jl`, and against recomputing the
+factorization from scratch, are on the
+[benchmarks page](https://el-oso.github.io/UpdatableFactorizations.jl/dev/benchmarks).
+Building a factorization from scratch goes through `LinearAlgebra`; this
+package does not offer a faster way to do that.
+
 ## Installation
 
 ```julia

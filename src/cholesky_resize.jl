@@ -175,6 +175,10 @@ end
 Insert a new index at position `j`, adding both a row and a column. `x` is the new row and
 column in the resulting indexing, so it has length `n+1` and `x[j]` is the new diagonal entry.
 
+The new index is appended at position `n+1` and then moved down to `j` with `shift_columns!`, in
+`O((n - j + 2) * n)` operations: inserting near `n+1` is cheap, and inserting near `1` costs as
+much as `shift_columns!(F, 1, n)`.
+
 Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the
 Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795.
 """

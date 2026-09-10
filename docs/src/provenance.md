@@ -29,9 +29,9 @@ from a published article, listed below, and each algorithm's docstring cites the
 | implementation | license | consulted for |
 | --- | --- | --- |
 | `LinearAlgebra` (Julia standard library) | MIT | the `lowrankupdate!`/`lowrankdowndate!` signatures this package extends |
-| `QRupdate.jl` | MIT | API shape |
-| `UpdatableQRFactorizations.jl` | MIT | API shape |
-| `UpdatableCholeskyFactorizations.jl` | MIT | the capacity-with-active-block storage idea |
+| `QRupdate.jl` | MIT | API shape; benchmark comparison, maintaining `R` alone |
+| `UpdatableQRFactorizations.jl` | MIT | API shape; benchmark comparison, maintaining a full `m x m` `Q` |
+| `UpdatableCholeskyFactorizations.jl` | MIT | the capacity-with-active-block storage idea; benchmark comparison |
 
 `qrupdate-ng` is GPL-3.0-or-later. Its source was not read. It serves only as a benchmark target
 and as a reference list of routine names.
