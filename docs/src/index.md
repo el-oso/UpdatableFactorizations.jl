@@ -18,7 +18,15 @@ The Cholesky rank-1 update and downdate extend `LinearAlgebra.lowrankupdate!` an
 extends `LinearAlgebra.lowrankupdate!` with a method for `UpdatableQR`, rather than replacing the
 existing methods those functions already provide for `Cholesky` and `QR`.
 
-See [Getting started](@ref) to construct a factorization, [Updating and downdating](@ref) for a
-worked example of each operation, [Q representations](@ref) for how `UpdatableQR` stores its
-orthonormal factor, and [Provenance](@ref) for the article each algorithm derives from and the
-reference implementations consulted during development.
+The package also builds a factorization from scratch with three algorithms from Camarero,
+arXiv:1812.02056: a blocked Crout Cholesky, a blocked Crout LU, and a block classical
+Gram-Schmidt QR. Most of these are slower than the standard library's LAPACK calls; the
+exception is the QR routine without reorthogonalization, which is faster than forming a
+factorization through `LinearAlgebra.qr`. See [Construction](@ref) for the measured ratios and
+accuracy.
+
+See [Getting started](@ref) to construct a factorization, [Construction](@ref) for the
+Camarero-derived construction routines, [Updating and downdating](@ref) for a worked example of
+each update operation, [Q representations](@ref) for how `UpdatableQR` stores its orthonormal
+factor, and [Provenance](@ref) for the article each algorithm derives from and the reference
+implementations consulted during development.
