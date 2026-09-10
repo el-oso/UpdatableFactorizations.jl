@@ -57,10 +57,14 @@ swaps a row, unpivoted `lu_crout` reaches `norm(L*U - A)/norm(A)` of 1.7e-16 to 
 fixture says nothing about pivoted accuracy, because it never exercises a pivot.
 
 On a plain random matrix, which swaps rows at essentially every column, `LinearAlgebra.lu`
-itself (via `getrf`) reaches a residual of 1.1e-14 at n=2000 and 2.2e-14 at n=4000; pivoted
-`lu_crout` reaches 1.4e-14 and 2.6e-14 on the identical matrix, about 1.2 times LAPACK's own
-residual. Quoting the diagonally dominant figure next to that ratio would suggest a hundredfold
-gap that isn't there; the two numbers describe different matrices.
+itself (via `getrf`) reaches a residual of 3.1e-15 at n=1000 and 3.7e-15 at n=2000, and pivoted
+`lu_crout` reaches 7.0e-15 and 1.4e-14 on the identical matrices — 2.3 and 3.7 times LAPACK's
+own residual, a ratio that grows slowly with `n`. Both are medians over five independent draws,
+whose spread is under two percent. The Crout elimination order differs from LAPACK's blocked
+right-looking one, and so does its growth factor.
+
+Quoting the diagonally dominant figure next to LAPACK's pivoted one would suggest a hundredfold
+gap that is not there; the two numbers describe different matrices.
 
 `qr_bcgs` trades one residual for the other, not both at once:
 
@@ -72,10 +76,12 @@ gap that isn't there; the two numbers describe different matrices.
 Reconstruction is *better* than the baseline's regardless of `reorth`, because `R` is built from
 the same coefficients that built `Q`: `Q*R` reassembles `A` from the pieces subtracted from it
 during elimination, an identity that holds however orthogonal the finished `Q` turns out to be.
-Orthogonality is the setting `reorth` actually controls, and block classical Gram-Schmidt loses
-it as the square of the condition number regardless of that setting on a well-conditioned matrix.
-`reorth = true` gives orthogonality of order `eps` once the condition number times `eps` is well
-below one, at roughly twice the cost (see the speed table above). `qr_householder`, which calls
+Orthogonality is what `reorth` controls. The table above cannot show it, because both settings
+land near 1.7e-12 on a well-conditioned random matrix; the settings separate as the condition
+number grows. `reorth = false` loses orthogonality as the square of the condition number, while
+`reorth = true` runs the projection a second time and holds it at order `eps` provided the
+condition number times `eps` stays well below one, at roughly twice the cost (see the speed
+table above). `qr_householder`, which calls
 `LinearAlgebra.qr` and wraps the result, is unconditionally more accurate on orthogonality than
 either setting.
 
