@@ -17,8 +17,12 @@ end
     B = randn(6, 6)
     A = Matrix(Symmetric(B * B' + 6I))
     C = cholesky(Symmetric(A, :L))
-    # cholesky leaves the original matrix in the strict upper triangle; it must not leak in.
-    @test any(!iszero, [C.factors[i, j] for i in 1:6 for j in (i + 1):6])
+    # `Cholesky` guarantees only the triangle it stores, so the other one holds whatever the
+    # factorization left there. Filling it here makes that concrete rather than depending on any
+    # particular LAPACK build leaving something behind: none of it may leak into the copy.
+    for i in 1:6, j in (i + 1):6
+        C.factors[i, j] = 1000.0
+    end
     F = UpdatableCholesky(C)
     @test all(iszero, [F.factors[i, j] for i in 1:6 for j in (i + 1):6])
 end
