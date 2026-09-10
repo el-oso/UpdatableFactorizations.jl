@@ -61,9 +61,51 @@ Matrix(G) ≈ B
 `G.info` and `issuccess(G)` report whether the factorization is still valid; see
 [Updating and downdating](@ref) for what invalidates it.
 
+## QR
+
+`UpdatableQR` factors an `m` by `n` matrix with `m >= n` as `Q*R`, holding the thin `Q` (`m` by
+`n`, orthonormal columns) and the upper triangular `R`.
+
+```@example qr
+using LinearAlgebra, UpdatableFactorizations
+
+C = [1.0 1.0; 1.0 2.0; 1.0 3.0]
+H = UpdatableQR(C)
+H.R
+```
+
+`H.Q` has orthonormal columns and `Matrix(H)` reconstructs `C`:
+
+```@example qr
+H.Q' * H.Q ≈ I
+```
+
+```@example qr
+Matrix(H) ≈ C
+```
+
+Because the factorization is thin and `m` may exceed `n`, `\` solves the least-squares problem
+rather than a square system:
+
+```@example qr
+y = [1.0, 2.0, 2.0]
+H \ y
+```
+
+`capacity` is a tuple here, since a QR factorization grows in both directions —
+`insert_row!` adds an observation and `insert_column!` adds a variable:
+
+```@example qr
+H2 = UpdatableQR(C; capacity = (10, 4))
+UpdatableFactorizations.capacity(H2)
+```
+
+`capacity` is public but not exported, so it is reached through the module name.
+
 ## Capacity
 
-`UpdatableCholesky` can grow: `insert_column!` extends the factored matrix by one index. The
+`UpdatableCholesky` and `UpdatableQR` can grow: `insert_column!` extends the factored matrix by
+one index. The
 `capacity` keyword sets how large the factorization can grow before its storage is reallocated:
 
 ```@example cholesky
