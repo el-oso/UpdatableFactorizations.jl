@@ -105,8 +105,8 @@ UpdatableFactorizations.capacity(H2)
 ## Capacity
 
 `UpdatableCholesky` and `UpdatableQR` can grow: `insert_column!` extends the factored matrix by
-one index. The
-`capacity` keyword sets how large the factorization can grow before its storage is reallocated:
+one index. The `capacity` keyword sets how large the factorization can grow before its storage is
+reallocated — an integer for `UpdatableCholesky`, a `(rows, columns)` tuple for `UpdatableQR`:
 
 ```@example cholesky
 F2 = UpdatableCholesky(A; capacity = 10)
