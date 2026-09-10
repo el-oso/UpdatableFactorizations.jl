@@ -602,3 +602,241 @@ end
     Qw = qr_bcgs(A3; s = 4, matmul! = wrong_matmul!)
     @test norm(Matrix(Qw) - A3) / norm(A3) > 1.0e-3
 end
+
+@testitem "cholesky_crout! matches cholesky_crout on the same input" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 9
+    for s in (1, 4, 64)
+        B = randn(n, n)
+        A = Matrix(Symmetric(B * B' + n * I))
+        Fref = cholesky_crout(A; s, capacity = 2n)
+        F = cholesky_crout(A; s, capacity = 2n)
+        cholesky_crout!(F, copy(A); s)
+        # uplo = :L consumes A directly as the algorithm's lower-triangle scratch, the same role
+        # a plain Matrix plays in the allocating form, so the two run the identical sequence of
+        # BLAS calls and agree bit-for-bit.
+        @test Matrix(Fref.L) == Matrix(F.L)
+    end
+    # uplo = :U cannot alias A's storage as a lower-triangle scratch without copying, so the
+    # in-place form reads it through a lazy conjugate transpose (`A'`) instead. That view is not
+    # a StridedMatrix, so `default_rankk!`'s BLAS branch is unavailable at the flush and the
+    # in-place form falls back to `mul!`, a different summation order from the allocating form's
+    # dense Matrix scratch. The two factorizations then agree only to rounding.
+    B = randn(n, n)
+    A = Matrix(Symmetric(B * B' + n * I))
+    Fref = cholesky_crout(A; s = 3, uplo = :U, capacity = 2n)
+    F = cholesky_crout(A; s = 3, uplo = :U, capacity = 2n)
+    cholesky_crout!(F, copy(A); s = 3, uplo = :U)
+    @test norm(Matrix(Fref.L) - Matrix(F.L)) / norm(Matrix(Fref.L)) < 1.0e-13
+end
+
+@testitem "cholesky_crout! destroys A" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 6
+    B = randn(n, n)
+    A = Matrix(Symmetric(B * B' + n * I))
+    # s < n forces at least one deferred-update flush, which is the only place the kernel writes
+    # into `M` (aliased to `A` here); s >= n (the default) would leave A untouched and this test
+    # vacuous.
+    F = cholesky_crout(A; s = 2, capacity = 2n)
+    Acopy = copy(A)
+    cholesky_crout!(F, Acopy; s = 2)
+    @test Acopy != A
+end
+
+@testitem "cholesky_crout! throws when capacity cannot hold the result" begin
+    using LinearAlgebra
+    F = cholesky_crout(Matrix(1.0I, 4, 4); capacity = 4)
+    @test_throws "capacity 4 is below the size 5" cholesky_crout!(F, Matrix(1.0I, 5, 5))
+end
+
+@testitem "cholesky_crout! refactorization allocates nothing" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    function measure(n)
+        mk() = (B = randn(n, n); cholesky_crout(Matrix(Symmetric(B * B' + n * I)); capacity = 2n))
+        # The matrix to refactor is built outside the timed call: only the refactorization
+        # itself is under test, not the cost of generating a fresh input.
+        template = let B = randn(n, n)
+            Matrix(Symmetric(B * B' + n * I))
+        end
+        refactor!(F, A) = cholesky_crout!(F, A; s = 3)
+        for F in (mk(), mk(), mk(), mk())   # compile every kernel before measuring
+            refactor!(F, copy(template))
+        end
+        F = mk()
+        A = copy(template)
+        return @allocated refactor!(F, A)
+    end
+    @test iszero(measure(12))
+end
+
+@testitem "cholesky_crout! reused at a smaller size preserves the type invariants" begin
+    using LinearAlgebra, Random, Test
+    using UpdatableFactorizations: TypeContracts
+    using .TypeContracts: behavior_passes
+    Random.seed!(20260908)
+    n1, n2 = 10, 4
+    B1 = randn(n1, n1)
+    F = cholesky_crout(Matrix(Symmetric(B1 * B1' + n1 * I)); s = 3, capacity = 2n1)
+    B2 = randn(n2, n2)
+    A2 = Matrix(Symmetric(B2 * B2' + n2 * I))
+    cholesky_crout!(F, copy(A2); s = 2)
+    @test size(F) == (n2, n2)
+    @test behavior_passes(UpdatableCholesky, [F])
+    @test norm(Matrix(F) - A2) / norm(A2) < 1.0e-13
+end
+
+@testitem "lu_crout! matches lu_crout on the same input" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 9
+    for s in (1, 4, 64), pivot in (RowMaximum(), NoPivot())
+        A = randn(n, n) + n * I
+        Fref = lu_crout(A; s, pivot)
+        F = lu_crout(A; s, pivot)
+        lu_crout!(F, copy(A); s, pivot)
+        @test F.L == Fref.L && F.U == Fref.U && F.p == Fref.p
+    end
+end
+
+@testitem "lu_crout! destroys A" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 6
+    # A plain random matrix, not `+ n*I`: a diagonally dominant matrix never triggers a pivot
+    # swap under RowMaximum(), and a swap is what mutates `A` (aliased to `M`) outside a flush.
+    A = randn(n, n)
+    F = lu_crout(A)
+    Acopy = copy(A)
+    lu_crout!(F, Acopy)
+    @test Acopy != A
+end
+
+@testitem "lu_crout! throws when the target size does not match" begin
+    using LinearAlgebra
+    F = lu_crout(Matrix(1.0I, 4, 4))
+    @test_throws "capacity 4 is below the size 5" lu_crout!(F, Matrix(1.0I, 5, 5))
+end
+
+@testitem "lu_crout! sets info and issuccess on a zero pivot" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    n = 3
+    F = lu_crout(randn(n, n) + n * I; pivot = NoPivot())   # a valid target to refactor into
+    A = [1.0 2.0 3.0; 2.0 4.0 5.0; 1.0 1.0 1.0]   # the leading 2x2 minor is singular
+    @test_throws ZeroPivotException(2) lu_crout!(F, copy(A); pivot = NoPivot())
+    @test !issuccess(F)
+    @test F.info == 2
+end
+
+@testitem "lu_crout! refactorization allocates nothing" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    function measure(n)
+        mk() = lu_crout(randn(n, n) + n * I; s = 3)
+        template = randn(n, n) + n * I
+        refactor!(F, A) = lu_crout!(F, A; s = 3)
+        for F in (mk(), mk(), mk(), mk())   # compile every kernel before measuring
+            refactor!(F, copy(template))
+        end
+        F = mk()
+        A = copy(template)
+        return @allocated refactor!(F, A)
+    end
+    @test iszero(measure(12))
+end
+
+@testitem "lu_crout! preserves the type invariants after an in-place refactorization" begin
+    using LinearAlgebra, Random, Test
+    using UpdatableFactorizations: TypeContracts
+    using .TypeContracts: behavior_passes
+    Random.seed!(20260908)
+    n = 8
+    A = randn(n, n)
+    F = lu_crout(A; s = 3)
+    A2 = randn(n, n)
+    lu_crout!(F, copy(A2); s = 3)
+    @test behavior_passes(UpdatableLU, [F])
+    @test norm(Matrix(F) - A2) / norm(A2) < 1.0e-11
+end
+
+@testitem "qr_bcgs! matches qr_bcgs on the same input" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    for (m, n) in ((12, 7), (9, 9)), s in (1, 3, 64), reorth in (true, false)
+        A = randn(m, n)
+        Fref = qr_bcgs(A; s, reorth, capacity = (2m, 2n))
+        F = qr_bcgs(A; s, reorth, capacity = (2m, 2n))
+        qr_bcgs!(F, copy(A); s, reorth)
+        @test Matrix(Fref.Q) == Matrix(F.Q)
+        @test getfield(Fref, :factors) == getfield(F, :factors)
+    end
+end
+
+@testitem "qr_bcgs! destroys A" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    m, n = 10, 6
+    A = randn(m, n)
+    F = qr_bcgs(A; capacity = (2m, 2n))
+    Acopy = copy(A)
+    qr_bcgs!(F, Acopy)
+    @test Acopy != A
+end
+
+@testitem "qr_bcgs! throws when capacity cannot hold the result" begin
+    using LinearAlgebra
+    F = qr_bcgs(randn(6, 4); capacity = (6, 4))
+    @test_throws "column capacity 4 is below the size 5" qr_bcgs!(F, randn(6, 5))
+    @test_throws "row capacity 6 is below the size 7" qr_bcgs!(F, randn(7, 4))
+end
+
+@testitem "qr_bcgs! agrees with qr_bcgs on the rtol rank-deficiency test" begin
+    using LinearAlgebra
+    # The threshold compares against each column's own original norm, which the deferred flush
+    # has already reduced `M`'s copy of by the time this column is reached. When `M` aliases the
+    # caller's own matrix (the in-place path), that original norm has to be captured before `M`
+    # is touched at all, or this test regresses to comparing against the wrong quantity.
+    B = [1.0 0.0 1.0; 0.0 1.0 1.0e-15; 0.0 0.0 1.0e-17]
+    @test_throws "column 3 is a combination of the columns before it" qr_bcgs(B; s = 2, rtol = 1.0e-8)
+    F = qr_bcgs(copy(B); s = 2, capacity = (6, 6))
+    @test_throws(
+        "column 3 is a combination of the columns before it",
+        qr_bcgs!(F, copy(B); s = 2, rtol = 1.0e-8)
+    )
+end
+
+@testitem "qr_bcgs! refactorization allocates nothing" begin
+    using LinearAlgebra, Random
+    Random.seed!(20260908)
+    function measure(m, n)
+        mk() = qr_bcgs(randn(m, n); s = 3, capacity = (2m, 2n))
+        template = randn(m, n)
+        refactor!(F, A) = qr_bcgs!(F, A; s = 3)
+        for F in (mk(), mk(), mk(), mk())   # compile every kernel before measuring
+            refactor!(F, copy(template))
+        end
+        F = mk()
+        A = copy(template)
+        return @allocated refactor!(F, A)
+    end
+    @test iszero(measure(10, 6))
+end
+
+@testitem "qr_bcgs! reused at a smaller shape preserves the type invariants" begin
+    using LinearAlgebra, Random, Test
+    using UpdatableFactorizations: TypeContracts
+    using .TypeContracts: behavior_passes
+    Random.seed!(20260908)
+    m1, n1 = 12, 8
+    F = qr_bcgs(randn(m1, n1); s = 3, capacity = (2m1, 2n1))
+    m2, n2 = 7, 4
+    A2 = randn(m2, n2)
+    qr_bcgs!(F, copy(A2); s = 2)
+    @test size(F) == (m2, n2)
+    @test behavior_passes(UpdatableQR, [F])
+    @test norm(Matrix(F) - A2) / norm(A2) < 1.0e-13
+end

@@ -13,6 +13,34 @@ G = lu_crout(randn(400, 400); s = 64)   # partial pivoting, as LinearAlgebra.lu 
 H = qr_bcgs(randn(600, 400); s = 64)    # an UpdatableQR, ready to update
 ```
 
+## Refactorizing in place
+
+`cholesky_crout!`, `lu_crout!` and `qr_bcgs!` write into a factorization the caller already
+owns, instead of returning a new one. Each destroys its input matrix, exactly as
+`LinearAlgebra.cholesky!`, `lu!` and `qr!` destroy theirs, and each throws rather than growing
+when the target's capacity cannot hold the result. A caller who refactors the same target
+repeatedly, at a size no larger than it was built with, allocates nothing after the first call:
+
+```julia
+using UpdatableFactorizations, LinearAlgebra
+
+n = 400
+A0 = let B = randn(n, n); Matrix(Symmetric(B * B' + n * I)) end
+F = cholesky_crout(A0; capacity = 2n)
+for k in 1:1000
+    A = next_matrix(k)     # an n x n Hermitian positive definite matrix, freshly formed
+    cholesky_crout!(F, A)  # A is destroyed; F now factors it
+    # ... use F ...
+end
+```
+
+`UpdatableLU` has no capacity beyond its own size, so `lu_crout!` requires the target's size to
+match exactly rather than merely bound it.
+
+`cholesky_crout!` and `qr_bcgs!`, having genuine spare capacity, also support refactorizing into
+a target at a *smaller* size than it last held; the storage outside the new active block is
+cleared to keep the factorization's invariants intact.
+
 ## Speed, relative to LAPACK
 
 Every ratio below is candidate speed divided by baseline speed: **above 1.00 is a win, below
