@@ -8,7 +8,7 @@ from a published article, listed below, and each algorithm's docstring cites the
 | routine | article |
 | --- | --- |
 | Cholesky rank-1 update | Gill, Golub, Murray and Saunders, *Methods for modifying matrix factorizations*, Mathematics of Computation 28 (1974), 505-535 |
-| Cholesky rank-1 downdate | Bojanczyk, Brent, Van Dooren and de Hoog, *A note on downdating the Cholesky factorization*, SIAM Journal on Scientific and Statistical Computing 8 (1987), 210-221 |
+| Cholesky rank-1 downdate | LINPACK `dchdd` (Stewart); forward stability of both this form and the mixed hyperbolic form is established by Bojanczyk, Brent, Van Dooren and de Hoog, *A note on downdating the Cholesky factorization*, SIAM Journal on Scientific and Statistical Computing 8 (1987), 210-221 |
 | Cholesky symmetric delete and shift | Golub and Van Loan, *Matrix Computations*, 4th edition, section 6.5 |
 | Cholesky symmetric insert | Daniel, Gragg, Kaufman and Stewart, *Reorthogonalization and stable algorithms for updating the Gram-Schmidt QR factorization*, Mathematics of Computation 30 (1976), 772-795 |
 | LU rank-1 update, unpivoted | Bennett, *Triangular factors of modified matrices*, Numerische Mathematik 7 (1965), 217-221 |

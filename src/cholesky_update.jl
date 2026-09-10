@@ -39,12 +39,15 @@ end
     lowrankdowndate!(F::UpdatableCholesky, v) -> F
 
 Replace the factorization of `A` with that of `A - v*v'` in `O(n^2)` operations. `v` is not
-modified. Throws `PosDefException` when the result would not be positive definite. Extends
+modified. Throws `PosDefException` when the result would not be positive definite, before `F`
+is touched, so a failed downdate leaves the factorization exactly as it was. Extends
 `LinearAlgebra.lowrankdowndate!`.
 
-Uses the mixed formulation of Bojanczyk, Brent, Van Dooren and de Hoog, *A note on downdating
-the Cholesky factorization*, SIAM Journal on Scientific and Statistical Computing 8 (1987),
-210-221, which is more stable near breakdown than forming the hyperbolic rotation directly.
+LINPACK `dchdd` (Stewart): a forward solve followed by ordinary circular Givens rotations
+generated bottom-up. Bojanczyk, Brent, Van Dooren and de Hoog, *A note on downdating the
+Cholesky factorization*, SIAM Journal on Scientific and Statistical Computing 8 (1987),
+210-221, show both this form and their own mixed hyperbolic form are forward-stable; only the
+direct hyperbolic form is not.
 """
 function LinearAlgebra.lowrankdowndate!(F::UpdatableCholesky, v::AbstractVector)
     length(v) == F.n ||
@@ -58,19 +61,25 @@ function LinearAlgebra.lowrankdowndate!(F::UpdatableCholesky, v::AbstractVector)
     return F
 end
 
-# `w` is consumed, first as the right-hand side of L p = w and then as p itself. `cs` and `sn`
-# are scratch of length n; taking them from the caller keeps this allocation-free.
+# `w` is consumed, first as the right-hand side of L p = w, then as p itself, and finally
+# (once p is no longer needed) as the row accumulator `xx` in the sweep. `cs` and `sn` are
+# scratch of length n; taking every scratch vector from the caller keeps this allocation-free.
+#
+# Both loops are column-oriented: `L[j, i]` with `i` fixed is contiguous in `j`, whereas the
+# row-oriented form touches one element per cache line per column. The forward solve and the
+# sweep still see their rotations/updates in the same order per output element as a row-oriented
+# pass would, so the result is bit-identical to one.
 function _ch1dn!(L, w, cs, sn)
     n = size(L, 1)
     T = eltype(L)
     R = real(T)
     p = w
-    for i in 1:n
-        acc = p[i]
-        for k in 1:(i - 1)
-            acc -= L[i, k] * p[k]
+    for k in 1:n
+        p[k] /= L[k, k]
+        pk = p[k]
+        for i in (k + 1):n
+            p[i] -= L[i, k] * pk
         end
-        p[i] = acc / L[i, i]
     end
     alpha = one(R) - sum(abs2, p)
     alpha > 0 || throw(PosDefException(n))
@@ -81,12 +90,16 @@ function _ch1dn!(L, w, cs, sn)
         sn[i] = p[i] / r
         a = r
     end
-    for j in 1:n
-        xx = zero(T)
-        for i in j:-1:1
-            t = cs[i] * xx + sn[i] * L[j, i]
-            L[j, i] = cs[i] * L[j, i] - conj(sn[i]) * xx
-            xx = t
+    xx = p
+    fill!(xx, zero(T))
+    for i in n:-1:1
+        c = cs[i]
+        s = sn[i]
+        sc = conj(s)
+        for j in i:n
+            t = c * xx[j] + s * L[j, i]
+            L[j, i] = c * L[j, i] - sc * xx[j]
+            xx[j] = t
         end
     end
     return L

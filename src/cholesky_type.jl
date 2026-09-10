@@ -1,12 +1,15 @@
 abstract type AbstractUpdatableCholesky{T} <: Factorization{T} end
 
 """
-    UpdatableCholesky(C::Cholesky; capacity = 2size(C, 1))
-    UpdatableCholesky(A::AbstractMatrix; uplo = :L, capacity = 2size(A, 1))
+    UpdatableCholesky(C::Cholesky; capacity = 2size(C, 1) + 1)
+    UpdatableCholesky(A::AbstractMatrix; uplo = :L, capacity = 2size(A, 1) + 1)
 
 Cholesky factorization that supports rank-1 update and downdate and symmetric insertion,
 deletion and shifting of indices. `capacity` is the largest size the factorization can reach
-before its storage is reallocated.
+before its storage is reallocated. The default is one column past `2size(A, 1)`: a column
+count that is itself a multiple of a large power of two makes every row of a rank-1 update or
+downdate map to the same cache set, and the `+1` avoids that without changing the asymptotic
+storage cost.
 
 The lower factor `L` of `A = L*L'` is what is stored, whichever triangle the input holds.
 `F.L` is that factor, `F.U` its adjoint, and `Matrix(F)` the reconstructed `A`.
@@ -32,7 +35,7 @@ function _wrap_cholesky(f::Matrix{T}, n::Int) where {T}
     )
 end
 
-function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1)) where {T}
+function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1) + 1) where {T}
     n = size(C, 1)
     capacity >= n || throw(ArgumentError("capacity $capacity is below the size $n"))
     f = zeros(T, capacity, capacity)
@@ -52,7 +55,7 @@ function UpdatableCholesky(C::Cholesky{T}; capacity::Int = 2size(C, 1)) where {T
     return _wrap_cholesky(f, n)
 end
 
-UpdatableCholesky(A::AbstractMatrix; uplo::Symbol = :L, capacity::Int = 2size(A, 1)) =
+UpdatableCholesky(A::AbstractMatrix; uplo::Symbol = :L, capacity::Int = 2size(A, 1) + 1) =
     UpdatableCholesky(cholesky(Hermitian(A, uplo)); capacity)
 
 # The active block of the stored lower factor.
