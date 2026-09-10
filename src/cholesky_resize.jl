@@ -54,12 +54,13 @@ function _append!(F::UpdatableCholesky{T}, x::AbstractVector) where {T}
     l = view(F.work, 1:n)
     ix = firstindex(x) - 1
     for i in 1:n
-        acc = x[ix + i]
-        for k in 1:(i - 1)
-            acc -= L[i, k] * l[k]
-        end
-        l[i] = acc / L[i, i]
+        l[i] = x[ix + i]
     end
+    # Solves L l = l in place. `L` is strided, so a `BlasFloat` element type dispatches to
+    # `trtrs`; every other element type falls back to a column-oriented generic loop, which
+    # reads `L[i, k]` with `k` fixed -- contiguous in `i` -- rather than striding across the
+    # capacity-sized storage `L` is a view into.
+    ldiv!(LowerTriangular(L), l)
     d = real(x[ix + n + 1]) - sum(abs2, l)
     d > 0 || throw(PosDefException(n + 1))
     _grow!(F, n + 1)
