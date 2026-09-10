@@ -51,7 +51,8 @@ end
         m, n = 8, 5
         Qfull = Matrix(qr(randn(T, m, m)).Q)
         R0 = Matrix(triu(randn(T, n, n)))
-        R0[3, 2] = randn(T)   # a single subdiagonal spike, as a deleted column leaves behind
+        R0[4, 2] = randn(T)   # a spike spanning rows 3:4 of column 2, as a leftward shift leaves
+        R0[3, 2] = randn(T)
         target = Qfull[:, 1:n] * R0
 
         buf = zeros(T, m, n + 1)
@@ -59,10 +60,59 @@ end
         q = DenseQ{T, Matrix{T}}(buf, m, n)
         Rv = copy(R0)
 
-        _retriangularize!(Rv, q)
+        _retriangularize!(Rv, q, 1, n)
 
         # The subdiagonal must be exactly zero, not merely small: a rounding residue there is
         # the defect this kernel exists to avoid.
+        @test all(iszero, [Rv[i, j] for j in 1:n for i in (j + 1):n])
+        @test norm(Matrix(q) * Rv - target) / norm(target) < 1.0e-12
+        @test norm(Matrix(q)' * Matrix(q) - I) < 1.0e-12
+    end
+end
+
+@testitem "_retriangularize! only reads and rotates within the given column range" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: _retriangularize!, DenseQ
+
+    Random.seed!(20260908)
+    T = Float64
+    m, n = 8, 5
+    Qfull = Matrix(qr(randn(T, m, m)).Q)
+    R0 = Matrix(triu(randn(T, n, n)))
+    R0[3, 2] = randn(T)   # inside the range that will be passed
+    R0[5, 4] = randn(T)   # outside it: must survive untouched
+
+    buf = zeros(T, m, n + 1)
+    copyto!(view(buf, :, 1:n), view(Qfull, :, 1:n))
+    q = DenseQ{T, Matrix{T}}(buf, m, n)
+    Rv = copy(R0)
+
+    _retriangularize!(Rv, q, 2, 2)
+
+    @test iszero(Rv[3, 2])
+    @test Rv[5, 4] == R0[5, 4]   # untouched: outside columns 2:2
+end
+
+@testitem "_retriangularize_hessenberg! zeros a single subdiagonal entry per column and preserves Q*R" begin
+    using LinearAlgebra, Random
+    using UpdatableFactorizations: _retriangularize_hessenberg!, DenseQ
+
+    Random.seed!(20260908)
+    for T in (Float64, ComplexF64)
+        m, n = 8, 5
+        Qfull = Matrix(qr(randn(T, m, m)).Q)
+        R0 = Matrix(triu(randn(T, n, n)))
+        R0[2, 1] = randn(T)   # one entry at (c+1, c) in each of two columns
+        R0[4, 3] = randn(T)
+        target = Qfull[:, 1:n] * R0
+
+        buf = zeros(T, m, n + 1)
+        copyto!(view(buf, :, 1:n), view(Qfull, :, 1:n))
+        q = DenseQ{T, Matrix{T}}(buf, m, n)
+        Rv = copy(R0)
+
+        _retriangularize_hessenberg!(Rv, q, 1, n - 1)
+
         @test all(iszero, [Rv[i, j] for j in 1:n for i in (j + 1):n])
         @test norm(Matrix(q) * Rv - target) / norm(target) < 1.0e-12
         @test norm(Matrix(q)' * Matrix(q) - I) < 1.0e-12

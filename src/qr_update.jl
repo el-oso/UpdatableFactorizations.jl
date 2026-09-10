@@ -1,10 +1,12 @@
-# Zero every subdiagonal entry of `Rv` with row rotations, mirrored onto `q`'s columns so that
-# Q*R is unchanged. Entries that are already zero are skipped, so a disturbance confined to a
-# band costs only that band. Column-major order with the rows taken from the bottom up covers
-# both shapes that arise: a Hessenberg subdiagonal, and a single spike in one column.
-function _retriangularize!(Rv::AbstractMatrix{T}, q::AbstractQRep{T}) where {T}
+# Zero every strictly-lower-triangular entry of `Rv` in columns `lo:hi`, with row rotations
+# mirrored onto `q`'s columns so that Q*R is unchanged. Entries that are already zero are
+# skipped, and columns outside `lo:hi` are never read, so the caller must pass a range that
+# covers every column it actually disturbed. Column-major order with rows taken from the bottom
+# up handles a spike spanning several rows in one column, the shape a leftward column shift
+# leaves.
+function _retriangularize!(Rv::AbstractMatrix{T}, q::AbstractQRep{T}, lo::Integer, hi::Integer) where {T}
     nr, nc = size(Rv)
-    for c in 1:nc, r in min(nr, nc + 1):-1:(c + 1)
+    for c in lo:hi, r in min(nr, nc + 1):-1:(c + 1)
         iszero(Rv[r, c]) && continue
         cc, ss, rr = givensAlgorithm(Rv[r - 1, c], Rv[r, c])
         G = Givens(r - 1, r, oftype(Rv[r, c], cc), oftype(Rv[r, c], ss))
@@ -12,6 +14,27 @@ function _retriangularize!(Rv::AbstractMatrix{T}, q::AbstractQRep{T}) where {T}
         rmul!(q, G')
         Rv[r - 1, c] = rr
         Rv[r, c] = zero(T)    # lmul! leaves a rounding residue; the invariant is an exact zero
+    end
+    return Rv
+end
+
+# Zero the single entry at `(c+1, c)` in each column `c` of `lo:hi`, mirrored onto `q`. Valid
+# only when every disturbed column has at most that one nonzero entry below the diagonal, the
+# shape sliding columns leaves; a column carrying a spike across several rows needs the general
+# scan in `_retriangularize!` instead. Checking only that one position, rather than scanning down
+# to it, is what makes this cheaper than `_retriangularize!` over the same range.
+function _retriangularize_hessenberg!(
+        Rv::AbstractMatrix{T}, q::AbstractQRep{T}, lo::Integer, hi::Integer
+    ) where {T}
+    for c in lo:hi
+        r = c + 1
+        iszero(Rv[r, c]) && continue
+        cc, ss, rr = givensAlgorithm(Rv[r - 1, c], Rv[r, c])
+        G = Givens(r - 1, r, oftype(Rv[r, c], cc), oftype(Rv[r, c], ss))
+        lmul!(G, Rv)
+        rmul!(q, G')
+        Rv[r - 1, c] = rr
+        Rv[r, c] = zero(T)
     end
     return Rv
 end
@@ -35,12 +58,15 @@ function delete_column!(F::UpdatableQR{T, S, <:DenseQ}, j::Integer) where {T, S}
     for c in j:(n - 1), r in 1:n
         R[r, c] = R[r, c + 1]
     end
-    n == 1 || _retriangularize!(view(R, 1:n, 1:(n - 1)), q)
+    # Sliding column c+1 into c leaves at most a single entry at (c+1, c): the original column
+    # c+1 was upper triangular, zero for every row past c+1. Columns before j are untouched.
+    j <= n - 1 && _retriangularize_hessenberg!(view(R, 1:n, 1:(n - 1)), q, j, n - 1)
     _dropcolumn!(q)
     F.n = n - 1
     # Column n of R still holds its pre-shift values: the loop above never writes to it, and
-    # `_retriangularize!` operates only on columns 1:(n-1). It is now the vacated column, so it
-    # is the one piece of R this call must zero; `_dropcolumn!` already re-zeroes Q's side.
+    # `_retriangularize_hessenberg!` operates only on columns j:(n-1). It is now the vacated
+    # column, so it is the one piece of R this call must zero; `_dropcolumn!` already re-zeroes
+    # Q's side.
     fill!(view(R, 1:n, n), zero(T))
     return F
 end
@@ -81,10 +107,19 @@ function shift_columns!(F::UpdatableQR{T, S, <:DenseQ}, i::Integer, j::Integer) 
             R[r, j] = hold[r]
             hold[r] = zero(T)
         end
-        _retriangularize!(view(R, 1:n, 1:n), q)
+        if i < j
+            # Columns i:(j-1) each inherited the next column over and so carry at most a single
+            # entry at (c+1, c); column j received the moved column intact, at rows all above
+            # its own diagonal, so it needs no further work.
+            _retriangularize_hessenberg!(view(R, 1:n, 1:n), q, i, j - 1)
+        else
+            # Columns (j+1):i each inherited the previous column over and are already
+            # triangular; the moved column lands at j carrying a spike across rows (j+1):i.
+            _retriangularize!(view(R, 1:n, 1:n), q, j, j)
+        end
     end
     # `n` is unchanged, so nothing outside the active block needs to move. `hold` is `R`'s
-    # spare column and is re-zeroed by the loop above; `_retriangularize!` rotates only within
+    # spare column and is re-zeroed by the loop above; the rotation call above touches only
     # `R`'s active n x n block and, through `rmul!`, only `q`'s active columns, so neither
     # touches R's spare row/column or Q's spare column. Skipping the shift when `i == j` leaves
     # both untouched a fortiori.
@@ -206,9 +241,10 @@ struct _NoQ{T} <: AbstractQRep{T} end
 LinearAlgebra.rmul!(::_NoQ, ::Givens) = nothing
 
 # Chase the spike `z` into `RA` with Givens rotations, add the rank-1 correction to row 1 of
-# `RA`, and retriangularize, mirroring every rotation onto `q`. The sequence of rotations
-# depends only on `z` and `RA`, never on `q`'s entries, so calling this once on a scratch `RA`,
-# `z` and `q` and again on the live ones produces identical numbers in both `RA`s.
+# `RA`, and clear the single subdiagonal entry the chase leaves in each column, mirroring every
+# rotation onto `q`. The sequence of rotations depends only on `z` and `RA`, never on `q`'s
+# entries, so calling this once on a scratch `RA`, `z` and `q` and again on the live ones
+# produces identical numbers in both `RA`s.
 function _absorb_spike!(RA, z, q, v, iv, n, last)
     T = eltype(z)
     for k in (last - 1):-1:1
@@ -222,7 +258,7 @@ function _absorb_spike!(RA, z, q, v, iv, n, last)
     for j in 1:n
         RA[1, j] += z[1] * conj(v[iv + j])
     end
-    _retriangularize!(RA, q)
+    _retriangularize_hessenberg!(RA, q, 1, n)
     return RA
 end
 
