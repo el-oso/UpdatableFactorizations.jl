@@ -52,11 +52,15 @@ Matrix(F)
 `insert_column!` appends the new index at position `n+1` and then calls `shift_columns!` to move
 it down to `j`, so its cost depends on where `j` is: an insertion near the end is cheap, and an
 insertion near the front costs as much as the widest shift `shift_columns!` can do, described
-below. Measured at position 2, `insert_column!` is faster than recomputing the factorization with
-`cholesky` at n = 128, and slower from n = 256 up; at n = 2048 recomputing runs about 2.2 times
-faster than `insert_column!`, the widest gap measured. This is a cost of where the insertion
-lands, not a defect in the routine: the same call at position `n+1` is as cheap as `shift_columns!`
-moving nothing at all.
+below. Measured at position 2, the worst case, it is faster than recomputing the factorization
+with `cholesky` at every size — 1.7 times at n = 128, rising to 6.3 times at n = 2048.
+
+The capacity affects that cost more than the shape of the problem does. The active block is a
+view into `capacity`-by-`capacity` storage, so `capacity` is the column stride, and a stride that
+is a multiple of the page size makes every element of a row fall in the same cache set. At
+n = 2048, `capacity = 2n` runs the same insertion in 120.7 ms where `capacity = 2n + 1` takes
+8.7 ms. The default is padded away from that; a caller who sets `capacity` explicitly should
+avoid a power of two.
 
 ## Cholesky column deletion
 
@@ -80,12 +84,12 @@ Matrix(F) ≈ [3.0 2.0; 2.0 4.0]
 ```
 
 The cost is proportional to how far `i` moves, not to `n` alone. An adjacent shift such as the one
-above costs about 4 microseconds and stays flat as `n` grows: 0.0040, 0.0041, 0.0035, 0.0035,
-0.0039 ms at n = 128, 256, 512, 1024, 2048. Moving an index across the whole width of the
-factorization -- `shift_columns!(F, 1, n)` -- grows about 6.7 times for each doubling of `n`:
-0.055, 0.420, 1.952, 10.44, 69.78 ms over the same sizes. Both calls produce the same factorization
-they would if the shift were done one adjacent swap at a time; only the cost differs with how many
-of those swaps the move requires.
+above costs a few microseconds and stays flat as `n` grows: 0.0024, 0.0024, 0.0027, 0.0030,
+0.0035 ms at n = 128, 256, 512, 1024, 2048. Moving an index across the whole width of the
+factorization -- `shift_columns!(F, 1, n)` -- costs 0.015, 0.044, 0.147, 0.561, 3.69 ms over the
+same sizes, roughly quadratic in `n`. Both calls produce the same factorization they would if the
+shift were done one adjacent swap at a time; only the cost differs with how many of those swaps
+the move requires.
 
 ## LU rank-1 update
 

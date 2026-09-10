@@ -33,7 +33,7 @@ construction routines run from 0.51x to 1.61x the speed of
 the blocked LAPACK routine they are compared against, where 1.00 is parity: most of those cells
 are slower and one is faster. See [Construction](@ref) for which routine and why.
 
-Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas64_.so, [LP64] libopenblas.so), 1 BLAS thread, 2026-09-10, commit `f6644fa`.
+Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas64_.so, [LP64] libopenblas.so), 1 BLAS thread, 2026-09-10, commit `b265552`.
 
 ## Cholesky
 
@@ -41,95 +41,95 @@ Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64]
 
 | routine | worst | best | verdict |
 | --- | --- | --- | --- |
-| `lowrankupdate!` | 6.43x | 34.65x | wins at every n measured |
-| `lowrankdowndate!` | 0.55x | 1.68x | loses at n = 128, 256, 512 |
-| `delete_column!` | 2.17x | 6.66x | wins at every n measured |
-| `append_column!` | 2.74x | 7.17x | wins at every n measured |
-| `insert_column!` | 0.49x | 1.91x | loses at n = 128, 256, 512, 1024 |
-| `shift_columns!` | 0.56x | 2.75x | loses at n = 128, 256 |
+| `lowrankupdate!` | 6.34x | 44.56x | wins at every n measured |
+| `lowrankdowndate!` | 3.15x | 29.47x | wins at every n measured |
+| `delete_column!` | 1.72x | 5.86x | wins at every n measured |
+| `append_column!` | 7.26x | 13.40x | wins at every n measured |
+| `insert_column!` | 2.55x | 8.26x | wins at every n measured |
+| `shift_columns!` | 4.04x | 18.87x | wins at every n measured |
 
 | operation | n | implementation | median | vs recomputing | notes |
 | --- | --- | --- | --- | --- | --- |
-| lowrankupdate! | 64 | `UpdatableFactorizations` | 0.001 ms | 6.43x |  |
-| lowrankupdate! | 64 | `LinearAlgebra` | 0.002 ms | 4.08x |  |
+| lowrankupdate! | 64 | `UpdatableFactorizations` | 0.001 ms | 6.34x |  |
+| lowrankupdate! | 64 | `LinearAlgebra` | 0.002 ms | 3.89x |  |
 | lowrankupdate! | 64 | `recompute` | 0.007 ms | 1.00x |  |
-| lowrankupdate! | 128 | `UpdatableFactorizations` | 0.003 ms | 11.30x |  |
-| lowrankupdate! | 128 | `LinearAlgebra` | 0.005 ms | 5.34x |  |
-| lowrankupdate! | 128 | `recompute` | 0.029 ms | 1.00x |  |
-| lowrankupdate! | 256 | `UpdatableFactorizations` | 0.007 ms | 23.57x |  |
-| lowrankupdate! | 256 | `LinearAlgebra` | 0.019 ms | 8.45x |  |
-| lowrankupdate! | 256 | `recompute` | 0.163 ms | 1.00x |  |
-| lowrankupdate! | 512 | `UpdatableFactorizations` | 0.031 ms | 34.65x |  |
-| lowrankupdate! | 512 | `LinearAlgebra` | 0.071 ms | 15.24x |  |
-| lowrankupdate! | 512 | `recompute` | 1.089 ms | 1.00x |  |
-| lowrankupdate! | 1024 | `UpdatableFactorizations` | 0.257 ms | 30.93x |  |
-| lowrankupdate! | 1024 | `LinearAlgebra` | 0.387 ms | 20.53x |  |
-| lowrankupdate! | 1024 | `recompute` | 7.950 ms | 1.00x |  |
-| lowrankdowndate! | 64 | `UpdatableFactorizations` | 0.004 ms | 1.68x |  |
-| lowrankdowndate! | 64 | `LinearAlgebra` | 0.002 ms | 2.87x |  |
+| lowrankupdate! | 128 | `UpdatableFactorizations` | 0.003 ms | 11.14x |  |
+| lowrankupdate! | 128 | `LinearAlgebra` | 0.005 ms | 5.53x |  |
+| lowrankupdate! | 128 | `recompute` | 0.028 ms | 1.00x |  |
+| lowrankupdate! | 256 | `UpdatableFactorizations` | 0.007 ms | 23.10x |  |
+| lowrankupdate! | 256 | `LinearAlgebra` | 0.018 ms | 9.00x |  |
+| lowrankupdate! | 256 | `recompute` | 0.162 ms | 1.00x |  |
+| lowrankupdate! | 512 | `UpdatableFactorizations` | 0.024 ms | 44.56x |  |
+| lowrankupdate! | 512 | `LinearAlgebra` | 0.067 ms | 16.28x |  |
+| lowrankupdate! | 512 | `recompute` | 1.084 ms | 1.00x |  |
+| lowrankupdate! | 1024 | `UpdatableFactorizations` | 0.220 ms | 35.99x |  |
+| lowrankupdate! | 1024 | `LinearAlgebra` | 0.260 ms | 30.52x |  |
+| lowrankupdate! | 1024 | `recompute` | 7.923 ms | 1.00x |  |
+| lowrankdowndate! | 64 | `UpdatableFactorizations` | 0.002 ms | 3.15x |  |
+| lowrankdowndate! | 64 | `LinearAlgebra` | 0.002 ms | 2.99x |  |
 | lowrankdowndate! | 64 | `recompute` | 0.007 ms | 1.00x |  |
-| lowrankdowndate! | 128 | `UpdatableFactorizations` | 0.046 ms | 0.62x |  |
-| lowrankdowndate! | 128 | `LinearAlgebra` | 0.008 ms | 3.48x |  |
+| lowrankdowndate! | 128 | `UpdatableFactorizations` | 0.005 ms | 5.35x |  |
+| lowrankdowndate! | 128 | `LinearAlgebra` | 0.008 ms | 3.49x |  |
 | lowrankdowndate! | 128 | `recompute` | 0.028 ms | 1.00x |  |
-| lowrankdowndate! | 256 | `UpdatableFactorizations` | 0.295 ms | 0.55x |  |
-| lowrankdowndate! | 256 | `LinearAlgebra` | 0.031 ms | 5.33x |  |
-| lowrankdowndate! | 256 | `recompute` | 0.163 ms | 1.00x |  |
-| lowrankdowndate! | 512 | `UpdatableFactorizations` | 1.414 ms | 0.77x |  |
-| lowrankdowndate! | 512 | `LinearAlgebra` | 0.119 ms | 9.16x |  |
-| lowrankdowndate! | 512 | `recompute` | 1.087 ms | 1.00x |  |
-| lowrankdowndate! | 1024 | `UpdatableFactorizations` | 7.657 ms | 1.04x |  |
-| lowrankdowndate! | 1024 | `LinearAlgebra` | 0.507 ms | 15.69x |  |
-| lowrankdowndate! | 1024 | `recompute` | 7.953 ms | 1.00x |  |
-| delete_column! | 64 | `UpdatableFactorizations` | 0.003 ms | 2.17x |  |
-| delete_column! | 64 | `UpdatableCholeskyFactorizations` | 0.015 ms | 0.50x |  |
-| delete_column! | 64 | `recompute` | 0.008 ms | 1.00x |  |
-| delete_column! | 128 | `UpdatableFactorizations` | 0.013 ms | 2.33x |  |
-| delete_column! | 128 | `UpdatableCholeskyFactorizations` | 0.066 ms | 0.46x |  |
+| lowrankdowndate! | 256 | `UpdatableFactorizations` | 0.014 ms | 11.53x |  |
+| lowrankdowndate! | 256 | `LinearAlgebra` | 0.030 ms | 5.31x |  |
+| lowrankdowndate! | 256 | `recompute` | 0.161 ms | 1.00x |  |
+| lowrankdowndate! | 512 | `UpdatableFactorizations` | 0.047 ms | 23.03x |  |
+| lowrankdowndate! | 512 | `LinearAlgebra` | 0.118 ms | 9.23x |  |
+| lowrankdowndate! | 512 | `recompute` | 1.086 ms | 1.00x |  |
+| lowrankdowndate! | 1024 | `UpdatableFactorizations` | 0.265 ms | 29.47x |  |
+| lowrankdowndate! | 1024 | `LinearAlgebra` | 0.470 ms | 16.60x |  |
+| lowrankdowndate! | 1024 | `recompute` | 7.800 ms | 1.00x |  |
+| delete_column! | 64 | `UpdatableFactorizations` | 0.004 ms | 1.72x |  |
+| delete_column! | 64 | `UpdatableCholeskyFactorizations` | 0.013 ms | 0.56x |  |
+| delete_column! | 64 | `recompute` | 0.007 ms | 1.00x |  |
+| delete_column! | 128 | `UpdatableFactorizations` | 0.016 ms | 1.87x |  |
+| delete_column! | 128 | `UpdatableCholeskyFactorizations` | 0.065 ms | 0.47x |  |
 | delete_column! | 128 | `recompute` | 0.030 ms | 1.00x |  |
-| delete_column! | 256 | `UpdatableFactorizations` | 0.049 ms | 3.38x |  |
-| delete_column! | 256 | `UpdatableCholeskyFactorizations` | 0.322 ms | 0.51x |  |
+| delete_column! | 256 | `UpdatableFactorizations` | 0.061 ms | 2.70x |  |
+| delete_column! | 256 | `UpdatableCholeskyFactorizations` | 0.318 ms | 0.52x |  |
 | delete_column! | 256 | `recompute` | 0.165 ms | 1.00x |  |
-| delete_column! | 512 | `UpdatableFactorizations` | 0.233 ms | 4.45x |  |
-| delete_column! | 512 | `UpdatableCholeskyFactorizations` | 1.357 ms | 0.76x |  |
-| delete_column! | 512 | `recompute` | 1.035 ms | 1.00x |  |
-| delete_column! | 1024 | `UpdatableFactorizations` | 1.146 ms | 6.66x |  |
-| delete_column! | 1024 | `UpdatableCholeskyFactorizations` | 5.976 ms | 1.28x |  |
-| delete_column! | 1024 | `recompute` | 7.628 ms | 1.00x |  |
-| append_column! | 64 | `UpdatableFactorizations` | 0.001 ms | 7.17x |  |
-| append_column! | 64 | `UpdatableCholeskyFactorizations` | 0.001 ms | 9.83x |  |
+| delete_column! | 512 | `UpdatableFactorizations` | 0.252 ms | 4.06x |  |
+| delete_column! | 512 | `UpdatableCholeskyFactorizations` | 1.345 ms | 0.76x |  |
+| delete_column! | 512 | `recompute` | 1.024 ms | 1.00x |  |
+| delete_column! | 1024 | `UpdatableFactorizations` | 1.253 ms | 5.86x |  |
+| delete_column! | 1024 | `UpdatableCholeskyFactorizations` | 5.795 ms | 1.27x |  |
+| delete_column! | 1024 | `recompute` | 7.342 ms | 1.00x |  |
+| append_column! | 64 | `UpdatableFactorizations` | 0.001 ms | 7.26x |  |
+| append_column! | 64 | `UpdatableCholeskyFactorizations` | 0.001 ms | 9.36x |  |
 | append_column! | 64 | `recompute` | 0.008 ms | 1.00x |  |
-| append_column! | 128 | `UpdatableFactorizations` | 0.007 ms | 4.48x |  |
-| append_column! | 128 | `UpdatableCholeskyFactorizations` | 0.002 ms | 19.61x |  |
-| append_column! | 128 | `recompute` | 0.032 ms | 1.00x |  |
-| append_column! | 256 | `UpdatableFactorizations` | 0.049 ms | 3.50x |  |
-| append_column! | 256 | `UpdatableCholeskyFactorizations` | 0.004 ms | 40.99x |  |
-| append_column! | 256 | `recompute` | 0.171 ms | 1.00x |  |
-| append_column! | 512 | `UpdatableFactorizations` | 0.374 ms | 2.93x |  |
-| append_column! | 512 | `UpdatableCholeskyFactorizations` | 0.017 ms | 64.87x |  |
-| append_column! | 512 | `recompute` | 1.093 ms | 1.00x |  |
-| append_column! | 1024 | `UpdatableFactorizations` | 2.914 ms | 2.74x |  |
-| append_column! | 1024 | `UpdatableCholeskyFactorizations` | 0.094 ms | 84.63x |  |
-| append_column! | 1024 | `recompute` | 7.992 ms | 1.00x |  |
-| insert_column! | 64 | `UpdatableFactorizations` | 0.004 ms | 1.91x |  |
+| append_column! | 128 | `UpdatableFactorizations` | 0.004 ms | 7.64x |  |
+| append_column! | 128 | `UpdatableCholeskyFactorizations` | 0.002 ms | 19.07x |  |
+| append_column! | 128 | `recompute` | 0.031 ms | 1.00x |  |
+| append_column! | 256 | `UpdatableFactorizations` | 0.018 ms | 9.31x |  |
+| append_column! | 256 | `UpdatableCholeskyFactorizations` | 0.004 ms | 40.82x |  |
+| append_column! | 256 | `recompute` | 0.168 ms | 1.00x |  |
+| append_column! | 512 | `UpdatableFactorizations` | 0.081 ms | 13.40x |  |
+| append_column! | 512 | `UpdatableCholeskyFactorizations` | 0.016 ms | 68.19x |  |
+| append_column! | 512 | `recompute` | 1.090 ms | 1.00x |  |
+| append_column! | 1024 | `UpdatableFactorizations` | 0.641 ms | 12.24x |  |
+| append_column! | 1024 | `UpdatableCholeskyFactorizations` | 0.053 ms | 148.67x |  |
+| append_column! | 1024 | `recompute` | 7.842 ms | 1.00x |  |
+| insert_column! | 64 | `UpdatableFactorizations` | 0.003 ms | 2.55x |  |
 | insert_column! | 64 | `recompute` | 0.008 ms | 1.00x |  |
-| insert_column! | 128 | `UpdatableFactorizations` | 0.048 ms | 0.96x |  |
-| insert_column! | 128 | `recompute` | 0.046 ms | 1.00x |  |
-| insert_column! | 256 | `UpdatableFactorizations` | 0.348 ms | 0.49x |  |
-| insert_column! | 256 | `recompute` | 0.170 ms | 1.00x |  |
-| insert_column! | 512 | `UpdatableFactorizations` | 1.665 ms | 0.66x |  |
-| insert_column! | 512 | `recompute` | 1.098 ms | 1.00x |  |
-| insert_column! | 1024 | `UpdatableFactorizations` | 11.626 ms | 0.69x |  |
-| insert_column! | 1024 | `recompute` | 8.025 ms | 1.00x |  |
-| shift_columns! | 64 | `UpdatableFactorizations` | 0.003 ms | 2.75x |  |
+| insert_column! | 128 | `UpdatableFactorizations` | 0.010 ms | 3.07x |  |
+| insert_column! | 128 | `recompute` | 0.031 ms | 1.00x |  |
+| insert_column! | 256 | `UpdatableFactorizations` | 0.039 ms | 4.26x |  |
+| insert_column! | 256 | `recompute` | 0.168 ms | 1.00x |  |
+| insert_column! | 512 | `UpdatableFactorizations` | 0.160 ms | 6.82x |  |
+| insert_column! | 512 | `recompute` | 1.089 ms | 1.00x |  |
+| insert_column! | 1024 | `UpdatableFactorizations` | 0.950 ms | 8.26x |  |
+| insert_column! | 1024 | `recompute` | 7.844 ms | 1.00x |  |
+| shift_columns! | 64 | `UpdatableFactorizations` | 0.002 ms | 4.04x |  |
 | shift_columns! | 64 | `recompute` | 0.007 ms | 1.00x |  |
-| shift_columns! | 128 | `UpdatableFactorizations` | 0.038 ms | 0.79x |  |
-| shift_columns! | 128 | `recompute` | 0.030 ms | 1.00x |  |
-| shift_columns! | 256 | `UpdatableFactorizations` | 0.293 ms | 0.56x |  |
-| shift_columns! | 256 | `recompute` | 0.163 ms | 1.00x |  |
-| shift_columns! | 512 | `UpdatableFactorizations` | 1.275 ms | 1.03x |  |
-| shift_columns! | 512 | `recompute` | 1.307 ms | 1.00x |  |
-| shift_columns! | 1024 | `UpdatableFactorizations` | 7.543 ms | 1.05x |  |
-| shift_columns! | 1024 | `recompute` | 7.947 ms | 1.00x |  |
+| shift_columns! | 128 | `UpdatableFactorizations` | 0.005 ms | 5.80x |  |
+| shift_columns! | 128 | `recompute` | 0.029 ms | 1.00x |  |
+| shift_columns! | 256 | `UpdatableFactorizations` | 0.019 ms | 10.85x |  |
+| shift_columns! | 256 | `recompute` | 0.204 ms | 1.00x |  |
+| shift_columns! | 512 | `UpdatableFactorizations` | 0.070 ms | 15.56x |  |
+| shift_columns! | 512 | `recompute` | 1.085 ms | 1.00x |  |
+| shift_columns! | 1024 | `UpdatableFactorizations` | 0.414 ms | 18.87x |  |
+| shift_columns! | 1024 | `recompute` | 7.802 ms | 1.00x |  |
 
 ## LU
 
@@ -137,41 +137,41 @@ Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64]
 
 | routine | worst | best | verdict |
 | --- | --- | --- | --- |
-| `lowrankupdate! nopivot` | 11.41x | 38.84x | wins at every n measured |
-| `lowrankupdate! pivoted` | 1.66x | 8.48x | wins at every n measured |
+| `lowrankupdate! nopivot` | 11.58x | 38.00x | wins at every n measured |
+| `lowrankupdate! pivoted` | 1.58x | 8.39x | wins at every n measured |
 
 | operation | n | implementation | median | vs recomputing | notes |
 | --- | --- | --- | --- | --- | --- |
-| lowrankupdate! nopivot | 64 | `UpdatableFactorizations` | 0.002 ms | 22.13x |  |
-| lowrankupdate! nopivot | 64 | `QRupdatesFast` | 0.005 ms | 7.71x |  |
+| lowrankupdate! nopivot | 64 | `UpdatableFactorizations` | 0.002 ms | 22.09x |  |
+| lowrankupdate! nopivot | 64 | `QRupdatesFast` | 0.004 ms | 8.10x |  |
 | lowrankupdate! nopivot | 64 | `recompute` | 0.036 ms | 1.00x |  |
-| lowrankupdate! nopivot | 128 | `UpdatableFactorizations` | 0.007 ms | 38.84x |  |
-| lowrankupdate! nopivot | 128 | `QRupdatesFast` | 0.021 ms | 12.62x |  |
+| lowrankupdate! nopivot | 128 | `UpdatableFactorizations` | 0.007 ms | 38.00x |  |
+| lowrankupdate! nopivot | 128 | `QRupdatesFast` | 0.021 ms | 12.78x |  |
 | lowrankupdate! nopivot | 128 | `recompute` | 0.265 ms | 1.00x |  |
-| lowrankupdate! nopivot | 256 | `UpdatableFactorizations` | 0.176 ms | 11.41x |  |
-| lowrankupdate! nopivot | 256 | `QRupdatesFast` | 0.089 ms | 22.62x |  |
-| lowrankupdate! nopivot | 256 | `recompute` | 2.013 ms | 1.00x |  |
-| lowrankupdate! nopivot | 512 | `UpdatableFactorizations` | 1.311 ms | 12.10x |  |
-| lowrankupdate! nopivot | 512 | `QRupdatesFast` | 0.401 ms | 39.59x |  |
-| lowrankupdate! nopivot | 512 | `recompute` | 15.859 ms | 1.00x |  |
-| lowrankupdate! nopivot | 1024 | `UpdatableFactorizations` | 5.565 ms | 22.91x |  |
-| lowrankupdate! nopivot | 1024 | `QRupdatesFast` | 1.788 ms | 71.31x |  |
-| lowrankupdate! nopivot | 1024 | `recompute` | 127.498 ms | 1.00x |  |
-| lowrankupdate! pivoted | 64 | `UpdatableFactorizations` | 0.002 ms | 8.48x |  |
-| lowrankupdate! pivoted | 64 | `QRupdatesFast` | 0.003 ms | 3.84x |  |
+| lowrankupdate! nopivot | 256 | `UpdatableFactorizations` | 0.173 ms | 11.63x |  |
+| lowrankupdate! nopivot | 256 | `QRupdatesFast` | 0.088 ms | 22.87x |  |
+| lowrankupdate! nopivot | 256 | `recompute` | 2.010 ms | 1.00x |  |
+| lowrankupdate! nopivot | 512 | `UpdatableFactorizations` | 1.356 ms | 11.58x |  |
+| lowrankupdate! nopivot | 512 | `QRupdatesFast` | 0.391 ms | 40.14x |  |
+| lowrankupdate! nopivot | 512 | `recompute` | 15.696 ms | 1.00x |  |
+| lowrankupdate! nopivot | 1024 | `UpdatableFactorizations` | 5.626 ms | 22.27x |  |
+| lowrankupdate! nopivot | 1024 | `QRupdatesFast` | 1.719 ms | 72.92x |  |
+| lowrankupdate! nopivot | 1024 | `recompute` | 125.315 ms | 1.00x |  |
+| lowrankupdate! pivoted | 64 | `UpdatableFactorizations` | 0.002 ms | 8.08x |  |
+| lowrankupdate! pivoted | 64 | `QRupdatesFast` | 0.003 ms | 3.78x |  |
 | lowrankupdate! pivoted | 64 | `recompute` | 0.013 ms | 1.00x |  |
-| lowrankupdate! pivoted | 128 | `UpdatableFactorizations` | 0.007 ms | 8.28x |  |
-| lowrankupdate! pivoted | 128 | `QRupdatesFast` | 0.039 ms | 1.53x |  |
+| lowrankupdate! pivoted | 128 | `UpdatableFactorizations` | 0.007 ms | 8.39x |  |
+| lowrankupdate! pivoted | 128 | `QRupdatesFast` | 0.039 ms | 1.55x |  |
 | lowrankupdate! pivoted | 128 | `recompute` | 0.060 ms | 1.00x |  |
-| lowrankupdate! pivoted | 256 | `UpdatableFactorizations` | 0.172 ms | 1.93x |  |
-| lowrankupdate! pivoted | 256 | `QRupdatesFast` | 0.436 ms | 0.76x |  |
-| lowrankupdate! pivoted | 256 | `recompute` | 0.333 ms | 1.00x |  |
-| lowrankupdate! pivoted | 512 | `UpdatableFactorizations` | 1.269 ms | 1.66x |  |
-| lowrankupdate! pivoted | 512 | `QRupdatesFast` | 3.229 ms | 0.65x |  |
-| lowrankupdate! pivoted | 512 | `recompute` | 2.110 ms | 1.00x |  |
-| lowrankupdate! pivoted | 1024 | `UpdatableFactorizations` | 5.688 ms | 2.59x |  |
-| lowrankupdate! pivoted | 1024 | `QRupdatesFast` | 15.101 ms | 0.98x |  |
-| lowrankupdate! pivoted | 1024 | `recompute` | 14.746 ms | 1.00x |  |
+| lowrankupdate! pivoted | 256 | `UpdatableFactorizations` | 0.173 ms | 1.91x |  |
+| lowrankupdate! pivoted | 256 | `QRupdatesFast` | 0.435 ms | 0.76x |  |
+| lowrankupdate! pivoted | 256 | `recompute` | 0.329 ms | 1.00x |  |
+| lowrankupdate! pivoted | 512 | `UpdatableFactorizations` | 1.320 ms | 1.58x |  |
+| lowrankupdate! pivoted | 512 | `QRupdatesFast` | 3.432 ms | 0.61x |  |
+| lowrankupdate! pivoted | 512 | `recompute` | 2.091 ms | 1.00x |  |
+| lowrankupdate! pivoted | 1024 | `UpdatableFactorizations` | 5.535 ms | 2.67x |  |
+| lowrankupdate! pivoted | 1024 | `QRupdatesFast` | 14.675 ms | 1.01x |  |
+| lowrankupdate! pivoted | 1024 | `recompute` | 14.786 ms | 1.00x |  |
 
 ## QR
 
@@ -179,84 +179,84 @@ Recorded on `neuromancer`, governor `powersave`, Julia 1.12.7, LBTConfig([ILP64]
 
 | routine | worst | best | verdict |
 | --- | --- | --- | --- |
-| `lowrankupdate!` | 3.01x | 6.66x | wins at every m measured |
-| `insert_column!` | 12.83x | 20.82x | wins at every m measured |
-| `delete_column!` | 9.01x | 17.37x | wins at every m measured |
-| `shift_columns!` | 7.77x | 16.86x | wins at every m measured |
-| `insert_row!` | 10.83x | 12.32x | wins at every m measured |
-| `delete_row!` | 4.64x | 7.90x | wins at every m measured |
+| `lowrankupdate!` | 3.14x | 6.75x | wins at every m measured |
+| `insert_column!` | 12.59x | 20.40x | wins at every m measured |
+| `delete_column!` | 7.95x | 15.67x | wins at every m measured |
+| `shift_columns!` | 8.96x | 16.39x | wins at every m measured |
+| `insert_row!` | 9.72x | 13.14x | wins at every m measured |
+| `delete_row!` | 5.34x | 9.02x | wins at every m measured |
 
 | operation | m | implementation | median | vs recomputing | notes |
 | --- | --- | --- | --- | --- | --- |
-| lowrankupdate! | 256 | `UpdatableFactorizations` | 0.028 ms | 3.01x |  |
+| lowrankupdate! | 256 | `UpdatableFactorizations` | 0.027 ms | 3.14x |  |
 | lowrankupdate! | 256 | `recompute` | 0.084 ms | 1.00x |  |
-| lowrankupdate! | 512 | `UpdatableFactorizations` | 0.106 ms | 4.69x |  |
-| lowrankupdate! | 512 | `recompute` | 0.495 ms | 1.00x |  |
-| lowrankupdate! | 1024 | `UpdatableFactorizations` | 0.504 ms | 6.24x |  |
-| lowrankupdate! | 1024 | `recompute` | 3.143 ms | 1.00x |  |
-| lowrankupdate! | 2048 | `UpdatableFactorizations` | 3.453 ms | 6.66x |  |
-| lowrankupdate! | 2048 | `recompute` | 23.000 ms | 1.00x |  |
-| insert_column! | 256 | `UpdatableFactorizations` | 0.007 ms | 12.83x |  |
-| insert_column! | 256 | `QRupdate` | 0.009 ms | 9.65x | `QRupdate` maintains `R` only, never `Q` — less work |
-| insert_column! | 256 | `UpdatableQRFactorizations` | 0.048 ms | 1.86x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
-| insert_column! | 256 | `recompute` | 0.090 ms | 1.00x |  |
-| insert_column! | 512 | `UpdatableFactorizations` | 0.034 ms | 14.77x |  |
-| insert_column! | 512 | `QRupdate` | 0.027 ms | 18.44x | `QRupdate` maintains `R` only, never `Q` — less work |
-| insert_column! | 512 | `UpdatableQRFactorizations` | 0.188 ms | 2.69x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
-| insert_column! | 512 | `recompute` | 0.506 ms | 1.00x |  |
-| insert_column! | 1024 | `UpdatableFactorizations` | 0.215 ms | 14.81x |  |
-| insert_column! | 1024 | `QRupdate` | 0.111 ms | 28.64x | `QRupdate` maintains `R` only, never `Q` — less work |
-| insert_column! | 1024 | `UpdatableQRFactorizations` | 0.750 ms | 4.24x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
-| insert_column! | 1024 | `recompute` | 3.178 ms | 1.00x |  |
-| insert_column! | 2048 | `UpdatableFactorizations` | 1.135 ms | 20.82x |  |
-| insert_column! | 2048 | `QRupdate` | 0.514 ms | 45.99x | `QRupdate` maintains `R` only, never `Q` — less work |
-| insert_column! | 2048 | `UpdatableQRFactorizations` | 2.870 ms | 8.23x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
-| insert_column! | 2048 | `recompute` | 23.626 ms | 1.00x |  |
-| delete_column! | 256 | `UpdatableFactorizations` | 0.009 ms | 9.01x |  |
-| delete_column! | 256 | `QRupdate` | 0.006 ms | 14.20x | `QRupdate` maintains `R` only, never `Q` — less work |
-| delete_column! | 256 | `UpdatableQRFactorizations` | 0.031 ms | 2.68x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
+| lowrankupdate! | 512 | `UpdatableFactorizations` | 0.103 ms | 4.73x |  |
+| lowrankupdate! | 512 | `recompute` | 0.488 ms | 1.00x |  |
+| lowrankupdate! | 1024 | `UpdatableFactorizations` | 0.473 ms | 6.58x |  |
+| lowrankupdate! | 1024 | `recompute` | 3.113 ms | 1.00x |  |
+| lowrankupdate! | 2048 | `UpdatableFactorizations` | 3.464 ms | 6.75x |  |
+| lowrankupdate! | 2048 | `recompute` | 23.393 ms | 1.00x |  |
+| insert_column! | 256 | `UpdatableFactorizations` | 0.007 ms | 12.59x |  |
+| insert_column! | 256 | `QRupdate` | 0.009 ms | 9.33x | `QRupdate` maintains `R` only, never `Q` — less work |
+| insert_column! | 256 | `UpdatableQRFactorizations` | 0.047 ms | 1.85x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
+| insert_column! | 256 | `recompute` | 0.088 ms | 1.00x |  |
+| insert_column! | 512 | `UpdatableFactorizations` | 0.031 ms | 15.96x |  |
+| insert_column! | 512 | `QRupdate` | 0.034 ms | 14.72x | `QRupdate` maintains `R` only, never `Q` — less work |
+| insert_column! | 512 | `UpdatableQRFactorizations` | 0.188 ms | 2.67x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
+| insert_column! | 512 | `recompute` | 0.503 ms | 1.00x |  |
+| insert_column! | 1024 | `UpdatableFactorizations` | 0.180 ms | 17.56x |  |
+| insert_column! | 1024 | `QRupdate` | 0.111 ms | 28.67x | `QRupdate` maintains `R` only, never `Q` — less work |
+| insert_column! | 1024 | `UpdatableQRFactorizations` | 0.742 ms | 4.27x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
+| insert_column! | 1024 | `recompute` | 3.169 ms | 1.00x |  |
+| insert_column! | 2048 | `UpdatableFactorizations` | 1.146 ms | 20.40x |  |
+| insert_column! | 2048 | `QRupdate` | 0.470 ms | 49.79x | `QRupdate` maintains `R` only, never `Q` — less work |
+| insert_column! | 2048 | `UpdatableQRFactorizations` | 2.838 ms | 8.24x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
+| insert_column! | 2048 | `recompute` | 23.392 ms | 1.00x |  |
+| delete_column! | 256 | `UpdatableFactorizations` | 0.011 ms | 7.95x |  |
+| delete_column! | 256 | `QRupdate` | 0.006 ms | 14.38x | `QRupdate` maintains `R` only, never `Q` — less work |
+| delete_column! | 256 | `UpdatableQRFactorizations` | 0.030 ms | 2.80x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
 | delete_column! | 256 | `recompute` | 0.084 ms | 1.00x |  |
-| delete_column! | 512 | `UpdatableFactorizations` | 0.044 ms | 11.36x |  |
-| delete_column! | 512 | `QRupdate` | 0.062 ms | 8.07x | `QRupdate` maintains `R` only, never `Q` — less work |
-| delete_column! | 512 | `UpdatableQRFactorizations` | 0.183 ms | 2.71x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
-| delete_column! | 512 | `recompute` | 0.497 ms | 1.00x |  |
-| delete_column! | 1024 | `UpdatableFactorizations` | 0.271 ms | 11.46x |  |
-| delete_column! | 1024 | `QRupdate` | 0.262 ms | 11.86x | `QRupdate` maintains `R` only, never `Q` — less work |
-| delete_column! | 1024 | `UpdatableQRFactorizations` | 1.070 ms | 2.91x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
-| delete_column! | 1024 | `recompute` | 3.112 ms | 1.00x |  |
-| delete_column! | 2048 | `UpdatableFactorizations` | 1.351 ms | 17.37x |  |
-| delete_column! | 2048 | `QRupdate` | 1.601 ms | 14.67x | `QRupdate` maintains `R` only, never `Q` — less work |
-| delete_column! | 2048 | `UpdatableQRFactorizations` | 3.976 ms | 5.90x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
-| delete_column! | 2048 | `recompute` | 23.479 ms | 1.00x |  |
-| shift_columns! | 256 | `UpdatableFactorizations` | 0.011 ms | 7.77x |  |
-| shift_columns! | 256 | `QRupdatesFast` | 0.004 ms | 19.30x |  |
-| shift_columns! | 256 | `recompute` | 0.085 ms | 1.00x |  |
-| shift_columns! | 512 | `UpdatableFactorizations` | 0.042 ms | 11.72x |  |
-| shift_columns! | 512 | `QRupdatesFast` | 0.019 ms | 26.32x |  |
-| shift_columns! | 512 | `recompute` | 0.493 ms | 1.00x |  |
-| shift_columns! | 1024 | `UpdatableFactorizations` | 0.243 ms | 12.78x |  |
-| shift_columns! | 1024 | `QRupdatesFast` | 0.092 ms | 33.81x |  |
-| shift_columns! | 1024 | `recompute` | 3.106 ms | 1.00x |  |
-| shift_columns! | 2048 | `UpdatableFactorizations` | 1.382 ms | 16.86x |  |
-| shift_columns! | 2048 | `QRupdatesFast` | 0.536 ms | 43.51x |  |
-| shift_columns! | 2048 | `recompute` | 23.302 ms | 1.00x |  |
-| insert_row! | 256 | `UpdatableFactorizations` | 0.008 ms | 10.83x |  |
-| insert_row! | 256 | `QRupdate` | 0.023 ms | 3.53x | `QRupdate` maintains `R` only, never `Q` — less work |
-| insert_row! | 256 | `recompute` | 0.083 ms | 1.00x |  |
-| insert_row! | 512 | `UpdatableFactorizations` | 0.035 ms | 12.32x |  |
-| insert_row! | 512 | `QRupdate` | 0.079 ms | 5.42x | `QRupdate` maintains `R` only, never `Q` — less work |
-| insert_row! | 512 | `recompute` | 0.426 ms | 1.00x |  |
-| insert_row! | 1024 | `UpdatableFactorizations` | 0.240 ms | 11.45x |  |
-| insert_row! | 1024 | `QRupdate` | 0.441 ms | 6.23x | `QRupdate` maintains `R` only, never `Q` — less work |
-| insert_row! | 1024 | `recompute` | 2.749 ms | 1.00x |  |
-| insert_row! | 2048 | `UpdatableFactorizations` | 1.784 ms | 11.01x |  |
-| insert_row! | 2048 | `QRupdate` | 2.619 ms | 7.50x | `QRupdate` maintains `R` only, never `Q` — less work |
-| insert_row! | 2048 | `recompute` | 19.643 ms | 1.00x |  |
-| delete_row! | 256 | `UpdatableFactorizations` | 0.018 ms | 4.64x |  |
+| delete_column! | 512 | `UpdatableFactorizations` | 0.042 ms | 11.79x |  |
+| delete_column! | 512 | `QRupdate` | 0.045 ms | 10.87x | `QRupdate` maintains `R` only, never `Q` — less work |
+| delete_column! | 512 | `UpdatableQRFactorizations` | 0.192 ms | 2.57x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
+| delete_column! | 512 | `recompute` | 0.493 ms | 1.00x |  |
+| delete_column! | 1024 | `UpdatableFactorizations` | 0.235 ms | 13.33x |  |
+| delete_column! | 1024 | `QRupdate` | 0.264 ms | 11.84x | `QRupdate` maintains `R` only, never `Q` — less work |
+| delete_column! | 1024 | `UpdatableQRFactorizations` | 1.183 ms | 2.65x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
+| delete_column! | 1024 | `recompute` | 3.130 ms | 1.00x |  |
+| delete_column! | 2048 | `UpdatableFactorizations` | 1.471 ms | 15.67x |  |
+| delete_column! | 2048 | `QRupdate` | 1.650 ms | 13.97x | `QRupdate` maintains `R` only, never `Q` — less work |
+| delete_column! | 2048 | `UpdatableQRFactorizations` | 3.744 ms | 6.16x | `UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work |
+| delete_column! | 2048 | `recompute` | 23.045 ms | 1.00x |  |
+| shift_columns! | 256 | `UpdatableFactorizations` | 0.009 ms | 8.96x |  |
+| shift_columns! | 256 | `QRupdatesFast` | 0.004 ms | 19.19x |  |
+| shift_columns! | 256 | `recompute` | 0.084 ms | 1.00x |  |
+| shift_columns! | 512 | `UpdatableFactorizations` | 0.040 ms | 12.22x |  |
+| shift_columns! | 512 | `QRupdatesFast` | 0.020 ms | 25.09x |  |
+| shift_columns! | 512 | `recompute` | 0.489 ms | 1.00x |  |
+| shift_columns! | 1024 | `UpdatableFactorizations` | 0.224 ms | 13.85x |  |
+| shift_columns! | 1024 | `QRupdatesFast` | 0.085 ms | 36.58x |  |
+| shift_columns! | 1024 | `recompute` | 3.105 ms | 1.00x |  |
+| shift_columns! | 2048 | `UpdatableFactorizations` | 1.414 ms | 16.39x |  |
+| shift_columns! | 2048 | `QRupdatesFast` | 0.480 ms | 48.28x |  |
+| shift_columns! | 2048 | `recompute` | 23.182 ms | 1.00x |  |
+| insert_row! | 256 | `UpdatableFactorizations` | 0.008 ms | 9.72x |  |
+| insert_row! | 256 | `QRupdate` | 0.023 ms | 3.55x | `QRupdate` maintains `R` only, never `Q` — less work |
+| insert_row! | 256 | `recompute` | 0.082 ms | 1.00x |  |
+| insert_row! | 512 | `UpdatableFactorizations` | 0.033 ms | 12.92x |  |
+| insert_row! | 512 | `QRupdate` | 0.078 ms | 5.42x | `QRupdate` maintains `R` only, never `Q` — less work |
+| insert_row! | 512 | `recompute` | 0.423 ms | 1.00x |  |
+| insert_row! | 1024 | `UpdatableFactorizations` | 0.207 ms | 13.14x |  |
+| insert_row! | 1024 | `QRupdate` | 0.409 ms | 6.65x | `QRupdate` maintains `R` only, never `Q` — less work |
+| insert_row! | 1024 | `recompute` | 2.720 ms | 1.00x |  |
+| insert_row! | 2048 | `UpdatableFactorizations` | 1.899 ms | 10.57x |  |
+| insert_row! | 2048 | `QRupdate` | 2.489 ms | 8.06x | `QRupdate` maintains `R` only, never `Q` — less work |
+| insert_row! | 2048 | `recompute` | 20.065 ms | 1.00x |  |
+| delete_row! | 256 | `UpdatableFactorizations` | 0.015 ms | 5.34x |  |
 | delete_row! | 256 | `recompute` | 0.082 ms | 1.00x |  |
-| delete_row! | 512 | `UpdatableFactorizations` | 0.077 ms | 5.47x |  |
-| delete_row! | 512 | `recompute` | 0.421 ms | 1.00x |  |
-| delete_row! | 1024 | `UpdatableFactorizations` | 0.406 ms | 6.79x |  |
-| delete_row! | 1024 | `recompute` | 2.759 ms | 1.00x |  |
-| delete_row! | 2048 | `UpdatableFactorizations` | 2.498 ms | 7.90x |  |
-| delete_row! | 2048 | `recompute` | 19.736 ms | 1.00x |  |
+| delete_row! | 512 | `UpdatableFactorizations` | 0.064 ms | 6.49x |  |
+| delete_row! | 512 | `recompute` | 0.418 ms | 1.00x |  |
+| delete_row! | 1024 | `UpdatableFactorizations` | 0.330 ms | 8.19x |  |
+| delete_row! | 1024 | `recompute` | 2.698 ms | 1.00x |  |
+| delete_row! | 2048 | `UpdatableFactorizations` | 2.220 ms | 9.02x |  |
+| delete_row! | 2048 | `recompute` | 20.017 ms | 1.00x |  |
