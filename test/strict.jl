@@ -9,8 +9,9 @@
     # true (the default this suite runs under), the guard's own reflection is real compiled code
     # in `lowrankupdate!`'s body, so JET reports the guard's internal dispatch as instability and
     # AllocCheck reports its bookkeeping as allocation. Both checks are of the guard, not the
-    # kernel it guards; the kernel is type-stable and allocation-free with checks disabled, which
-    # is the configuration a shipped build sets.
+    # kernel it guards. The allocation guarantee is proven with checks disabled — the
+    # configuration a shipped build sets — by "updating verbs allocate nothing with checks
+    # disabled" below; type stability with checks disabled has no such proof.
     @test_broken (@test_typestable(lowrankupdate!(G, u, v)); true)
     @test_broken (@test_noalloc(lowrankupdate!(G, u, v)); true)
 end
@@ -26,12 +27,64 @@ end
     # `lowrankdowndate!`: with checks enabled (the default this suite runs under), each guard's
     # own reflection is real compiled code in its host function's body, so JET reports the
     # guard's internal dispatch as instability and AllocCheck reports its bookkeeping as
-    # allocation. Both kernels are type-stable and allocation-free with checks disabled, which
-    # is the configuration a shipped build sets.
+    # allocation. The allocation guarantee for both kernels is proven with checks disabled — the
+    # configuration a shipped build sets — by "updating verbs allocate nothing with checks
+    # disabled" below; type stability with checks disabled has no such proof.
     @test_broken (@test_typestable(lowrankupdate!(mk(), v)); true)
     @test_broken (@test_noalloc(lowrankupdate!(mk(), v)); true)
     @test_broken (@test_typestable(lowrankdowndate!(mk(), v)); true)
     @test_broken (@test_noalloc(lowrankdowndate!(mk(), v)); true)
+end
+
+@testitem "updating verbs allocate nothing with checks disabled" begin
+    using UpdatableFactorizations
+    # `StrictMode.checks_enabled()` is a `const` baked in at precompile time, so no in-process
+    # trick can flip it for the four `@strict`-guarded kernels; this proof needs a real separate
+    # process running under the disabled preference. `mktempdir` keeps that preference out of
+    # the package's own `Project.toml`/`LocalPreferences.toml`, which stay at the shipped,
+    # checks-enabled default.
+    tmp = mktempdir()
+    write(
+        joinpath(tmp, "LocalPreferences.toml"),
+        "[StrictMode]\nchecks_enabled = false\n"
+    )
+    script = joinpath(@__DIR__, "strict_gate_subprocess.jl")
+    pkgroot = pkgdir(UpdatableFactorizations)
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$tmp $script $pkgroot`
+    out = IOBuffer()
+    err = IOBuffer()
+    proc = run(pipeline(cmd; stdout = out, stderr = err); wait = true)
+    success(proc) ||
+        error("gate subprocess failed (exit $(proc.exitcode)):\n$(String(take!(err)))")
+
+    # A real function, not a top-level loop, so `checks_enabled` escapes it as a value rather
+    # than as an ambiguous soft-scope local.
+    function parse_gate_output(text)
+        checks_enabled = nothing
+        bytes = Dict{String, Int}()
+        for line in split(text, '\n')
+            isempty(line) && continue
+            label, value = split(line, '\t')
+            if label == "checks_enabled"
+                checks_enabled = parse(Bool, value)
+            else
+                bytes[label] = parse(Int, value)
+            end
+        end
+        return checks_enabled, bytes
+    end
+    checks_enabled, bytes = parse_gate_output(String(take!(out)))
+    # A subprocess that silently ran with checks still on would report every guarded verb as
+    # allocating, which reads as a real gate failure; one that silently ran with checks on and
+    # every verb *unguarded* would report zero for the wrong reason. Either way, this must fail
+    # loudly rather than pass on a false signal.
+    checks_enabled === false ||
+        error("gate subprocess did not report checks_enabled() == false (got $checks_enabled)")
+    @test length(bytes) == 24   # 12 verbs (6 QR + 5 Cholesky + 1 LU) x 2 element types
+
+    nonzero = [(label, b) for (label, b) in bytes if !iszero(b)]
+    isempty(nonzero) || @info "gate found nonzero allocation with checks disabled" nonzero
+    @test isempty(nonzero)
 end
 
 @testitem "factorization invariants hold after every operation" begin
@@ -138,7 +191,9 @@ end
     for T in (Float64, ComplexF64)
         bytes = measure(T, 80, 50)
         # `lowrankupdate!` carries `@strict`'s own reflection cost with checks enabled (the
-        # default this suite runs under); every other verb is unguarded and stays exactly zero.
+        # default this suite runs under); with checks disabled it allocates nothing too, proven
+        # by "updating verbs allocate nothing with checks disabled" below. Every other verb here
+        # is unguarded and stays exactly zero regardless of the preference.
         @test_broken iszero(bytes[1])
         @test bytes[2:end] == (0, 0, 0, 0, 0)
     end
@@ -156,8 +211,10 @@ end
         # `@strict` guards `_absorb_spike!`'s call in `lowrankupdate!`: with checks enabled (the
         # default this suite runs under), the guard's own reflection is real compiled code in
         # `lowrankupdate!`'s body, so JET reports its internal dispatch as instability and
-        # AllocCheck reports its bookkeeping as allocation. The kernel itself is type-stable and
-        # allocation-free with checks disabled, which is the configuration a shipped build sets.
+        # AllocCheck reports its bookkeeping as allocation. The allocation guarantee is proven
+        # with checks disabled — the configuration a shipped build sets — by "updating verbs
+        # allocate nothing with checks disabled" below; type stability with checks disabled has
+        # no such proof.
         @test_broken (@test_typestable(lowrankupdate!(F, u, v)); true)
         @test_broken (@test_noalloc(lowrankupdate!(F, u, v)); true)
         G = UpdatableQR(randn(T, m, n))
