@@ -33,7 +33,7 @@ construction routines run from 0.51x to 1.61x the speed of
 the blocked LAPACK routine they are compared against, where 1.00 is parity: most of those cells
 are slower and one is faster. See [Construction](@ref) for which routine and why.
 
-Recorded with governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas64_.so, [LP64] libopenblas.so), 1 BLAS thread, 2026-09-10, commit `f3d1f3b`.
+Recorded with governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas64_.so, [LP64] libopenblas.so), 1 BLAS thread, 2026-09-10, commit `f06bb78`.
 
 ## Cholesky
 
@@ -41,12 +41,12 @@ Recorded with governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas6
 
 | routine | worst | best | vs recomputing | vs the fastest other implementation |
 | --- | --- | --- | --- | --- |
-| `lowrankupdate!` | 6.40x | 46.05x | wins at every n measured | 1.18x-3.01x faster than `LinearAlgebra` |
-| `lowrankdowndate!` | 3.16x | 29.63x | wins at every n measured | 1.05x-2.57x faster than `LinearAlgebra` |
-| `delete_column!` | 2.13x | 6.72x | wins at every n measured | 3.41x-5.94x faster than `UpdatableCholeskyFactorizations` |
-| `append_column!` | 7.61x | 14.00x | wins at every n measured | 0.09x-0.81x of `UpdatableCholeskyFactorizations`, slower at every n |
-| `insert_column!` | 2.56x | 8.19x | wins at every n measured | no other implementation measured |
-| `shift_columns!` | 4.26x | 19.33x | wins at every n measured | no other implementation measured |
+| `lowrankupdate!` | 6.32x | 44.14x | wins at every n measured | 1.19x-2.71x faster than `LinearAlgebra` |
+| `lowrankdowndate!` | 3.04x | 27.67x | wins at every n measured | 1.05x-2.57x faster than `LinearAlgebra` |
+| `delete_column!` | 1.58x | 5.97x | wins at every n measured | 3.15x-5.15x faster than `UpdatableCholeskyFactorizations` |
+| `append_column!` | 11.92x | 77.08x | wins at every n measured | 0.53x-1.26x of `UpdatableCholeskyFactorizations`, slower at n = 256, 1024 |
+| `insert_column!` | 2.88x | 16.81x | wins at every n measured | no other implementation measured |
+| `shift_columns!` | 3.85x | 19.20x | wins at every n measured | no other implementation measured |
 
 ## LU
 
@@ -54,8 +54,8 @@ Recorded with governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas6
 
 | routine | worst | best | vs recomputing | vs the fastest other implementation |
 | --- | --- | --- | --- | --- |
-| `lowrankupdate! nopivot` | 31.38x | 256.37x | wins at every n measured | 3.48x-5.82x faster than `QRupdatesFast` |
-| `lowrankupdate! pivoted` | 10.26x | 35.00x | wins at every n measured | 2.78x-38.04x faster than `QRupdatesFast` |
+| `lowrankupdate! nopivot` | 28.58x | 278.57x | wins at every n measured | 3.21x-5.89x faster than `QRupdatesFast` |
+| `lowrankupdate! pivoted` | 10.02x | 32.98x | wins at every n measured | 2.60x-40.24x faster than `QRupdatesFast` |
 
 ## QR
 
@@ -63,9 +63,9 @@ Recorded with governor `powersave`, Julia 1.12.7, LBTConfig([ILP64] libopenblas6
 
 | routine | worst | best | vs recomputing | vs the fastest other implementation |
 | --- | --- | --- | --- | --- |
-| `lowrankupdate!` | 3.48x | 8.65x | wins at every m measured | no other implementation measured |
-| `insert_column!` | 20.22x | 43.84x | wins at every m measured | 0.76x-2.20x of `QRupdate` (which maintains `R` only, never `Q`), slower at m = 2048 |
-| `delete_column!` | 9.42x | 18.60x | wins at every m measured | 0.68x-1.42x of `QRupdate` (which maintains `R` only, never `Q`), slower at m = 256 |
-| `shift_columns!` | 12.68x | 29.28x | wins at every m measured | 0.49x-0.79x of `QRupdatesFast`, slower at every m |
-| `insert_row!` | 13.88x | 28.20x | wins at every m measured | 1.47x-4.64x faster than `QRupdate` (which maintains `R` only, never `Q`) |
-| `delete_row!` | 6.39x | 12.29x | wins at every m measured | no other implementation measured |
+| `lowrankupdate!` | 4.00x | 10.17x | wins at every m measured | no other implementation measured |
+| `insert_column!` | 20.52x | 43.65x | wins at every m measured | 0.75x-2.37x of `QRupdate` (which maintains `R` only, never `Q`), slower at m = 2048 |
+| `delete_column!` | 12.12x | 21.78x | wins at every m measured | 0.87x-1.71x of `QRupdate` (which maintains `R` only, never `Q`), slower at m = 256 |
+| `shift_columns!` | 16.63x | 37.53x | wins at every m measured | 0.55x-1.06x of `QRupdatesFast`, slower at m = 256, 1024, 2048 |
+| `insert_row!` | 16.84x | 27.47x | wins at every m measured | 1.91x-4.94x faster than `QRupdate` (which maintains `R` only, never `Q`) |
+| `delete_row!` | 6.34x | 11.91x | wins at every m measured | no other implementation measured |
