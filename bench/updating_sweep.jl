@@ -439,3 +439,12 @@ function qr_cells(sizes; samples::Int = 100)
     end
     return
 end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    single_threaded!()
+    Random.seed!(20260908)
+    cholesky_cells((64, 128, 256, 512, 1024))
+    lu_cells((64, 128, 256, 512, 1024))
+    qr_cells(((256, 64), (512, 128), (1024, 256), (2048, 512)))
+    save_results("updating")
+end
