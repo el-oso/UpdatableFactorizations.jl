@@ -80,38 +80,6 @@ end
 # calling `cholesky`, `lu` or `qr` again.
 speedup(base, cand) = base["median_seconds"] / cand["median_seconds"]
 
-# `QRupdate` maintains R alone and never touches Q; `UpdatableQRFactorizations` maintains a full
-# m x m Q where this package maintains a thin m x n one. Both do a different amount of work than
-# the row they sit next to, and the flag set on their JSON rows (Task 4 of the benchmark plan)
-# says so on every row where it applies, not only in the prose above the table.
-rownote(r) = get(r, "r_only", false) ? "`QRupdate` maintains `R` only, never `Q` — less work" :
-    get(r, "full_q", false) ? "`UpdatableQRFactorizations` maintains a full `m x m` `Q` — more work" :
-    ""
-
-variant_rank(v) = v == "UpdatableFactorizations" ? 0 : v == "recompute" ? 2 : 1
-
-function ratio_table(io, rows, family)
-    key = xaxis(family)
-    println(io, "| operation | $key | implementation | median | vs recomputing | notes |")
-    println(io, "| --- | --- | --- | --- | --- | --- |")
-    for routine in unique(r["routine"] for r in rows if r["family"] == family)
-        cells = filter(r -> r["family"] == family && r["routine"] == routine, rows)
-        for size in sort(unique(r[key] for r in cells))
-            here = filter(r -> r[key] == size, cells)
-            base = only(filter(r -> r["variant"] == "recompute", here))
-            ordered = sort(here; by = r -> (variant_rank(r["variant"]), r["variant"]))
-            for r in ordered
-                @printf(
-                    io, "| %s | %d | `%s` | %.3f ms | %.2fx | %s |\n",
-                    routine, size, r["variant"], 1.0e3 * r["median_seconds"],
-                    speedup(base, r), rownote(r)
-                )
-            end
-        end
-    end
-    return
-end
-
 # Whether UpdatableFactorizations' own verb beats recomputing, size by size, for one routine.
 # `nothing` values (a routine measured only at some sizes) never occur here -- every routine in
 # the case matrix is measured at every size in its family -- so every ratio compares.
@@ -270,8 +238,6 @@ function main()
             println(io, "\n## $title\n")
             println(io, "![$title updating](assets/bench-$family.svg)\n")
             verdict_table(io, rows, family)
-            println(io)
-            ratio_table(io, rows, family)
         end
     end
     println("wrote $PAGE")
