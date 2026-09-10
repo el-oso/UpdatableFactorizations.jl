@@ -13,6 +13,7 @@ makedocs(;
         "Construction" => "construction.md",
         "Updating and downdating" => "updating.md",
         "Q representations" => "q_representations.md",
+        "Benchmarks" => "benchmarks.md",
         "Provenance" => "provenance.md",
         "API" => "api.md",
     ],

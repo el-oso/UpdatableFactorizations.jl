@@ -128,3 +128,13 @@ end
     )
     empty!(ROWS)
 end
+
+@testset "plot_results reads only the saved data" begin
+    src = read(joinpath(@__DIR__, "plot_results.jl"), String)
+    # The script must not construct a factorization or call a benchmark macro: the published
+    # numbers come from the recorded file, not from a fresh measurement.
+    for forbidden in ("@be", "@b ", "UpdatableCholesky(", "UpdatableLU(", "UpdatableQR(")
+        @test !occursin(forbidden, src)
+    end
+    @test occursin("JSON.parsefile", src)
+end
