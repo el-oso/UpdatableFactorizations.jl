@@ -21,6 +21,11 @@ end
 # QR is swept over (m, n) pairs with m as the size axis; the other families are square.
 xaxis(family) = family == "qr" ? "m" : "n"
 
+# This package's own rows, and the color reserved for them everywhere. Wong's palette carries no
+# red, so this never collides with a comparison's color.
+const OURS = "UpdatableFactorizations"
+const OURS_COLOR = RGBf(0.78, 0.09, 0.13)
+
 function panel!(ax, cells, routine, key, colors)
     here = filter(r -> r["routine"] == routine, cells)
     for variant in sort(unique(r["variant"] for r in here))
@@ -28,7 +33,11 @@ function panel!(ax, cells, routine, key, colors)
             [(Float64(r[key]), r["median_seconds"]) for r in here if r["variant"] == variant];
             by = first
         )
-        scatterlines!(ax, first.(pts), last.(pts); color = colors[variant], label = variant)
+        scatterlines!(
+            ax, first.(pts), last.(pts); color = colors[variant], label = variant,
+            linewidth = variant == OURS ? 3.5 : 1.5,
+            markersize = variant == OURS ? 12 : 8
+        )
     end
     return ax
 end
@@ -41,9 +50,15 @@ function figure(rows, family, title)
     # every panel carries every variant, so a per-axis color cycle would draw the same variant in
     # different colors in different panels, and a legend taken from one axis would omit the
     # variants that panel happens not to contain.
+    #
+    # This package's own line is always the same red, drawn thicker, on every panel of every
+    # family: it is the line a reader looks for first, and a palette index would move it whenever
+    # a family carries a different set of comparisons.
     variants = sort(unique(r["variant"] for r in cells))
     palette = CairoMakie.Makie.wong_colors()
-    colors = Dict(v => palette[mod1(i, length(palette))] for (i, v) in enumerate(variants))
+    others = filter(!=(OURS), variants)
+    colors = Dict{String, Any}(v => palette[mod1(i, length(palette))] for (i, v) in enumerate(others))
+    colors[OURS] = OURS_COLOR
     ncols = min(3, length(routines))
     nrows = cld(length(routines), ncols)
     fig = Figure(size = (420 * ncols, 340 * nrows + 90))
