@@ -1,5 +1,6 @@
 # UpdatableFactorizations.jl
 
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://el-oso.github.io/UpdatableFactorizations.jl/dev/)
 [![CI](https://github.com/el-oso/UpdatableFactorizations.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/el-oso/UpdatableFactorizations.jl/actions/workflows/CI.yml)
 [![Coverage Status](https://coveralls.io/repos/github/el-oso/UpdatableFactorizations.jl/badge.svg?branch=master)](https://coveralls.io/github/el-oso/UpdatableFactorizations.jl?branch=master)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
